@@ -1,27 +1,26 @@
 import json
+from pathlib import Path
 from sklearn.metrics.pairwise import cosine_similarity
 
 
-# Đọc embeddings
+BASE_DIR = Path(__file__).resolve().parents[2]
+DATA_DIR = BASE_DIR / "data"
+
 with open(
-    r"C:\news-recommendation-system\data\embeddings.json",
+    DATA_DIR / "embeddings.json",
     "r",
     encoding="utf-8"
 ) as f:
     embeddings = json.load(f)
 
 
-# Chọn bài đang xem
 target_index = 0
-
 target_vector = embeddings[target_index]["vector"]
 
 results = []
 
-# So sánh với tất cả bài
 for i in range(len(embeddings)):
 
-    # Không so sánh bài với chính nó
     if i == target_index:
         continue
 
@@ -33,25 +32,25 @@ for i in range(len(embeddings)):
     )[0][0]
 
     results.append({
+        "index": i,
         "title": embeddings[i]["title"],
+        "url": embeddings[i]["url"],
         "score": score
     })
 
 
-# Sắp xếp similarity từ cao xuống thấp
 results.sort(
     key=lambda x: x["score"],
     reverse=True
 )
 
 
-# In bài đang xem
 print("Article đang xem:")
 print(embeddings[target_index]["title"])
 
-print("\nTop 3 bài tương tự:")
+print("\nTop 5 bài tương tự:")
 
-for i, result in enumerate(results[:3], start=1):
+for i, result in enumerate(results[:5], start=1):
 
     print(
         f"{i}. {result['title']} "

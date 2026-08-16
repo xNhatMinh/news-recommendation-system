@@ -1,23 +1,29 @@
 import json
+from pathlib import Path
+
+
+BASE_DIR = Path(__file__).resolve().parents[2]
+DATA_DIR = BASE_DIR / "data"
+
 
 with open(
-    r"C:\news-recommendation-system\data\articles.json",
+    DATA_DIR / "articles.json",
     "r",
     encoding="utf-8"
 ) as f:
     articles = json.load(f)
 
+
 print("Number of articles:", len(articles))
 
-article = articles[0]
+for i, article in enumerate(articles):
 
-title = article["title"]
-description = article["description"]
-content = article["content"]
+    print("\n" + "=" * 80)
 
-text = title + "\n" + description + "\n" + content
+    print(f"Article {i}")
 
-print("Title:", title)
-print("Description:", description)
-print("Content length:", len(content))
-print("Text length:", len(text))
+    print("Title:", article["title"])
+
+    print("Description:", article["description"])
+
+    print("Content length:", len(article["content"]))

@@ -8,11 +8,9 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = BASE_DIR / "data"
 
-
 HEADERS = {
     "User-Agent": "Mozilla/5.0"
 }
-
 
 CATEGORIES = {
     "Thời sự": "https://vnexpress.net/thoi-su",
@@ -26,7 +24,6 @@ CATEGORIES = {
 
 
 def get_soup(url):
-
     response = requests.get(
         url,
         headers=HEADERS,
@@ -40,164 +37,134 @@ def get_soup(url):
         "lxml"
     )
 
+def get_page_url(category_url, page):
+    if page == 1:
+        return category_url
 
-def get_article_urls(category_url, limit=15):
+    return category_url + f"-p{page}"
 
-    soup = get_soup(category_url)
+
+def get_article_urls(category_url, pages=5, limit_per_page=30):
 
     urls = []
 
-    for article in soup.select("article.item-news"):
+    for page in range(1, pages + 1):
 
-        link = article.select_one(
-            "h3.title-news a"
+        page_url = get_page_url(
+            category_url,
+            page
         )
 
-        if link:
+        print(f"   Page {page}: {page_url}")
 
-            url = link.get("href")
+        try:
+            soup = get_soup(page_url)
 
-            if url and url not in urls:
+            count = 0
 
-                urls.append(url)
+            for article in soup.select("article.item-news"):
 
-        if len(urls) >= limit:
-            break
+                link = article.select_one(
+                    "h3.title-news a"
+                )
+
+                if link:
+
+                    url = link.get("href")
+
+                    if url and url not in urls:
+                        urls.append(url)
+                        count += 1
+
+                if count >= limit_per_page:
+                    break
+
+            print(
+                f"   -> Found {count} URLs"
+            )
+
+        except Exception as e:
+
+            print(
+                f"   -> Error page {page}: {e}"
+            )
+
+        time.sleep(1)
 
     return urls
 
-
 def get_article(url):
-
     soup = get_soup(url)
 
-    title = soup.select_one(
-        "h1.title-detail"
-    )
-
-    description = soup.select_one(
-        "p.description"
-    )
+    title = soup.select_one("h1.title-detail")
+    description = soup.select_one("p.description")
 
     paragraphs = []
 
-    for p in soup.select(
-        "article.fck_detail p.Normal"
-    ):
-
-        text = p.get_text(
-            " ",
-            strip=True
-        )
+    for p in soup.select("article.fck_detail p.Normal"):
+        text = p.get_text(" ", strip=True)
 
         if text and text not in paragraphs:
-
             paragraphs.append(text)
 
-    breadcrumb = soup.select_one(
-        "ul.breadcrumb"
-    )
-
+    breadcrumb = soup.select_one("ul.breadcrumb")
     category = ""
 
     if breadcrumb:
-
         links = breadcrumb.select("a")
 
         if links:
-
             category = links[-1].get_text(
                 " ",
                 strip=True
             )
 
-    date = soup.select_one(
-        "span.date"
-    )
+    date = soup.select_one("span.date")
 
     return {
-        "title": (
-            title.get_text(" ", strip=True)
-            if title else ""
-        ),
-
-        "description": (
-            description.get_text(" ", strip=True)
-            if description else ""
-        ),
-
+        "title": title.get_text(" ", strip=True) if title else "",
+        "description": description.get_text(" ", strip=True) if description else "",
         "content": "\n".join(paragraphs),
-
         "category": category,
-
         "url": url,
-
-        "published_at": (
-            date.get_text(" ", strip=True)
-            if date else ""
-        )
+        "published_at": date.get_text(" ", strip=True) if date else ""
     }
 
 
 def main():
-
     print("Starting crawler...\n")
 
     all_urls = []
 
-    # ==========================================
-    # 1. Collect article URLs
-    # ==========================================
-
     for category_name, category_url in CATEGORIES.items():
-
-        print(
-            f"Collecting: {category_name}"
-        )
+        print(f"Collecting: {category_name}")
 
         try:
-
             urls = get_article_urls(
                 category_url,
-                limit=15
+                pages=5,
+                limit_per_page=30
             )
 
-            print(
-                f"-> Found {len(urls)} URLs"
-            )
+            print(f"-> Found {len(urls)} URLs")
 
             for url in urls:
-
                 if url not in all_urls:
-
                     all_urls.append(url)
 
         except Exception as e:
-
-            print(
-                f"Error collecting {category_name}: {e}"
-            )
+            print(f"Error collecting {category_name}: {e}")
 
         time.sleep(1)
 
-    print(
-        f"\nTotal unique URLs: {len(all_urls)}"
-    )
-
-    # ==========================================
-    # 2. Crawl articles
-    # ==========================================
+    print(f"\nTotal unique URLs: {len(all_urls)}")
 
     articles = []
 
     for i, url in enumerate(all_urls, 1):
-
-        print(
-            f"[{i}/{len(all_urls)}] Crawling..."
-        )
+        print(f"[{i}/{len(all_urls)}] Crawling...")
 
         try:
-
             article = get_article(url)
 
             if (
@@ -205,49 +172,23 @@ def main():
                 and article["description"]
                 and article["content"]
             ):
-
                 articles.append(article)
-
-                print(
-                    f"-> {article['title']}"
-                )
-
+                print(f"-> {article['title']}")
             else:
-
-                print(
-                    "-> Skip: missing data"
-                )
+                print("-> Skip: missing data")
 
         except Exception as e:
-
-            print(
-                f"-> Error: {e}"
-            )
+            print(f"-> Error: {e}")
 
         time.sleep(1)
-
-    # ==========================================
-    # 3. Remove duplicate articles
-    # ==========================================
 
     unique_articles = []
     seen_urls = set()
 
     for article in articles:
-
         if article["url"] not in seen_urls:
-
-            seen_urls.add(
-                article["url"]
-            )
-
-            unique_articles.append(
-                article
-            )
-
-    # ==========================================
-    # 4. Save
-    # ==========================================
+            seen_urls.add(article["url"])
+            unique_articles.append(article)
 
     output_file = DATA_DIR / "articles.json"
 
@@ -256,7 +197,6 @@ def main():
         "w",
         encoding="utf-8"
     ) as f:
-
         json.dump(
             unique_articles,
             f,
@@ -264,15 +204,9 @@ def main():
             indent=2
         )
 
-    print(
-        f"\nSaved {len(unique_articles)} articles"
-    )
-
-    print(
-        f"File: {output_file}"
-    )
+    print(f"\nSaved {len(unique_articles)} articles")
+    print(f"File: {output_file}")
 
 
 if __name__ == "__main__":
-
     main()

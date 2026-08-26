@@ -1,116 +1,115 @@
 import json
 from pathlib import Path
-from sklearn.metrics.pairwise import cosine_similarity
+from datetime import datetime
+
+from src.embedding.hybrid_search import search_hybrid
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = BASE_DIR / "data"
 
+
 with open(
-    DATA_DIR / "embeddings.json",
+    DATA_DIR / "articles.json",
     "r",
     encoding="utf-8"
 ) as f:
-    embeddings = json.load(f)
+    articles = json.load(f)
 
 
 test_cases = [
     {
-        "name": "Vòm cầu",
-        "target": 6,
-        "relevant": [9]
+        "topic": "UAV",
+        "relevant": [
+            "Tướng Ukraine: Nga đã phát triển UAV chuyên phá lưới điện",
+            "Ấn Độ chi hơn 200 triệu USD để thuê hai UAV Mỹ",
+            "Ukraine có thể đã dùng UAV Anh để tập kích lãnh thổ Nga"
+        ]
     },
     {
-        "name": "FIFA ASEAN Cup",
-        "target": 45,
-        "relevant": [52]
+        "topic": "Ukraine",
+        "relevant": [
+            "Ông Putin: 'Ukraine đã mở hộp Pandora'",
+            "Ukraine có thể đã dùng UAV Anh để tập kích lãnh thổ Nga",
+            "Ukraine phóng hơn 600 UAV nhằm vào Moskva, gây cháy nhà kho Wildberries"
+        ]
     },
     {
-        "name": "Miss World",
-        "target": 65,
-        "relevant": [71, 60]
+        "topic": "Xuân Son",
+        "relevant": [
+            "CĐV trên phố đi bộ Nguyễn Huệ vỡ òa với cú đúp của Xuân Son",
+            "CĐV ở phố đi bộ Nguyễn Huệ reo hò khi Việt Nam thắng Malaysia 2-0"
+        ]
     },
     {
-        "name": "Ronaldo",
-        "target": 46,
-        "relevant": [56]
+        "topic": "Ngô Thanh Vân",
+        "relevant": [
+            "Ngô Thanh Vân bế con catwalk"
+        ]
     },
     {
-        "name": "Máy bay",
-        "target": 0,
-        "relevant": [24, 40, 28]
+        "topic": "Bitcoin",
+        "relevant": [
+            "Vì sao Bitcoin kém hấp dẫn hơn trước?"
+        ]
     }
 ]
 
 
-def get_similar_articles(target_index):
-    target_vector = embeddings[target_index]["vector"]
+start_date = datetime.strptime(
+    "01/08/2026",
+    "%d/%m/%Y"
+).date()
 
-    results = []
 
-    for i in range(len(embeddings)):
-
-        if i == target_index:
-            continue
-
-        vector = embeddings[i]["vector"]
-
-        score = cosine_similarity(
-            [target_vector],
-            [vector]
-        )[0][0]
-
-        results.append({
-            "index": i,
-            "title": embeddings[i]["title"],
-            "score": score
-        })
-
-    results.sort(
-        key=lambda x: x["score"],
-        reverse=True
-    )
-
-    return results
+end_date = datetime.strptime(
+    "23/08/2026",
+    "%d/%m/%Y"
+).date()
 
 
 recall_at_3 = 0
 recall_at_5 = 0
 
+
 print("=" * 60)
-print("RECOMMENDATION EVALUATION")
+print("HYBRID RECOMMENDATION EVALUATION")
 print("=" * 60)
 
 
 for test in test_cases:
 
-    name = test["name"]
-    target = test["target"]
+    topic = test["topic"]
     relevant = test["relevant"]
 
-    results = get_similar_articles(target)
+    results = search_hybrid(
+        topic,
+        start_date,
+        end_date,
+        top_k=10
+    )
 
     top3 = results[:3]
     top5 = results[:5]
 
-    top3_indexes = [
-        result["index"]
+    top3_titles = [
+        result["title"]
         for result in top3
     ]
 
-    top5_indexes = [
-        result["index"]
+    top5_titles = [
+        result["title"]
         for result in top5
     ]
 
     pass_top3 = any(
-        index in relevant
-        for index in top3_indexes
+        title in relevant
+        for title in top3_titles
     )
 
     pass_top5 = any(
-        index in relevant
-        for index in top5_indexes
+        title in relevant
+        for title in top5_titles
     )
 
     if pass_top3:
@@ -119,10 +118,9 @@ for test in test_cases:
     if pass_top5:
         recall_at_5 += 1
 
-    print(f"\nTest: {name}")
-    print(
-        f"Article: {embeddings[target]['title']}"
-    )
+    print("\n" + "=" * 60)
+    print(f"TOPIC: {topic}")
+    print("=" * 60)
 
     print("\nTop 5:")
 
@@ -131,8 +129,9 @@ for test in test_cases:
         start=1
     ):
         print(
-            f"{rank}. {result['title']} "
-            f"-> {result['score']:.4f}"
+            f"{rank}. "
+            f"{result['title']} "
+            f"-> {result['hybrid_score']:.4f}"
         )
 
     print(
@@ -150,6 +149,7 @@ total_tests = len(test_cases)
 
 recall_at_3_score = recall_at_3 / total_tests
 recall_at_5_score = recall_at_5 / total_tests
+
 
 print("\n" + "=" * 60)
 print("FINAL RESULT")

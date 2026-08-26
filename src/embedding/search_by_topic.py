@@ -33,6 +33,7 @@ model = SentenceTransformer(
 
 
 def get_date(date_text):
+
     match = re.search(
         r"(\d{1,2})/(\d{1,2})/(\d{4})",
         date_text
@@ -45,19 +46,30 @@ def get_date(date_text):
     month = int(match.group(2))
     year = int(match.group(3))
 
-    return datetime(year, month, day).date()
+    return datetime(
+        year,
+        month,
+        day
+    ).date()
 
 
-def search_by_topic(topic, start_date, end_date, top_k=10):
+def search_by_topic(
+    topic,
+    start_date,
+    end_date,
+    top_k=10
+):
 
-    topic_vector = model.encode([topic])
-
-    results = []
+    topic_vector = model.encode(
+        [topic]
+    )
 
     article_map = {}
 
     for article in articles:
         article_map[article["url"]] = article
+
+    results = []
 
     for embedding in embeddings:
 
@@ -81,10 +93,26 @@ def search_by_topic(topic, start_date, end_date, top_k=10):
         if published_date > end_date:
             continue
 
-        score = cosine_similarity(
+        embedding_score = cosine_similarity(
             topic_vector,
             [embedding["vector"]]
         )[0][0]
+
+        title = article["title"].lower()
+        description = article["description"].lower()
+
+        keyword_score = 0
+
+        if topic.lower() in title:
+            keyword_score = 1
+
+        elif topic.lower() in description:
+            keyword_score = 1
+
+        if keyword_score == 1:
+            hybrid_score = embedding_score + 0.3
+        else:
+            hybrid_score = embedding_score
 
         results.append({
             "title": article["title"],
@@ -93,7 +121,9 @@ def search_by_topic(topic, start_date, end_date, top_k=10):
             "category": article["category"],
             "url": article["url"],
             "published_at": article["published_at"],
-            "score": float(score)
+            "embedding_score": float(embedding_score),
+            "keyword_score": keyword_score,
+            "score": float(hybrid_score)
         })
 
     results.sort(
@@ -101,69 +131,62 @@ def search_by_topic(topic, start_date, end_date, top_k=10):
         reverse=True
     )
 
-    results = [
-        result
-        for result in results
-        if result["score"] >= 0.30
-    ]
-
     return results[:top_k]
 
 
-print("=" * 60)
-print("SEARCH NEWS BY TOPIC")
-print("=" * 60)
+def main():
 
-topic = input("Chủ đề: ")
+    print("=" * 60)
+    print("SEARCH NEWS BY TOPIC")
+    print("=" * 60)
 
-start_date_text = input(
-    "Từ ngày (dd/mm/yyyy): "
-)
+    topic = input("Chủ đề: ")
 
-end_date_text = input(
-    "Đến ngày (dd/mm/yyyy): "
-)
+    start_date_text = input(
+        "Từ ngày (dd/mm/yyyy): "
+    )
 
+    end_date_text = input(
+        "Đến ngày (dd/mm/yyyy): "
+    )
 
-start_date = datetime.strptime(
-    start_date_text,
-    "%d/%m/%Y"
-).date()
+    start_date = datetime.strptime(
+        start_date_text,
+        "%d/%m/%Y"
+    ).date()
 
-end_date = datetime.strptime(
-    end_date_text,
-    "%d/%m/%Y"
-).date()
+    end_date = datetime.strptime(
+        end_date_text,
+        "%d/%m/%Y"
+    ).date()
 
+    if start_date > end_date:
+        print(
+            "Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc."
+        )
+        return
 
-if start_date > end_date:
-    print("Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc.")
-    exit()
+    results = search_by_topic(
+        topic,
+        start_date,
+        end_date,
+        top_k=10
+    )
 
+    print("\n" + "=" * 60)
+    print(f"Chủ đề: {topic}")
+    print(
+        f"Thời gian: {start_date_text} - {end_date_text}"
+    )
+    print("=" * 60)
 
-results = search_by_topic(
-    topic,
-    start_date,
-    end_date,
-    top_k=10
-)
+    if not results:
+        print("Không tìm thấy bài báo phù hợp.")
+        return
 
-
-print("\n" + "=" * 60)
-print(f"Chủ đề: {topic}")
-print(
-    f"Thời gian: {start_date_text} - {end_date_text}"
-)
-print("=" * 60)
-
-print(
-    f"\nTìm thấy {len(results)} bài báo liên quan.\n"
-)
-
-
-if not results:
-    print("Không tìm thấy bài báo phù hợp.")
-else:
+    print(
+        f"\nTìm thấy {len(results)} bài báo liên quan.\n"
+    )
 
     for i, result in enumerate(results, start=1):
 
@@ -176,9 +199,22 @@ else:
         )
 
         print(
-            f"Similarity: {result['score']:.4f}"
+            f"Hybrid score: {result['score']:.4f}"
+        )
+
+        print(
+            f"Embedding score: "
+            f"{result['embedding_score']:.4f}"
+        )
+
+        print(
+            f"Keyword: {result['keyword_score']}"
         )
 
         print(
             f"URL: {result['url']}"
         )
+
+
+if __name__ == "__main__":
+    main()

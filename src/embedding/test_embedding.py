@@ -25,8 +25,6 @@ for article in articles:
         article["title"]
         + "\n"
         + article["description"]
-        + "\n"
-        + article["content"]
     )
 
     texts.append(text)

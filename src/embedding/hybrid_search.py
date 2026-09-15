@@ -1,30 +1,12 @@
 import json
-import re
-from pathlib import Path
+
 from datetime import datetime
 
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
+from sqlalchemy import text
 
-
-BASE_DIR = Path(__file__).resolve().parents[2]
-DATA_DIR = BASE_DIR / "data"
-
-
-with open(
-    DATA_DIR / "articles.json",
-    "r",
-    encoding="utf-8"
-) as f:
-    articles = json.load(f)
-
-
-with open(
-    DATA_DIR / "embeddings.json",
-    "r",
-    encoding="utf-8"
-) as f:
-    embeddings = json.load(f)
+from src.db.db import engine
 
 
 model = SentenceTransformer(
@@ -32,26 +14,10 @@ model = SentenceTransformer(
 )
 
 
-def get_date(date_text):
-    match = re.search(
-        r"(\d{1,2})/(\d{1,2})/(\d{4})",
-        date_text
-    )
-
-    if not match:
-        return None
-
-    day = int(match.group(1))
-    month = int(match.group(2))
-    year = int(match.group(3))
-
-    return datetime(year, month, day).date()
-
-
 def keyword_match(topic, article):
     topic = topic.lower()
 
-    text = (
+    text_content = (
         article["title"]
         + " "
         + article["description"]
@@ -59,7 +25,7 @@ def keyword_match(topic, article):
         + article["content"]
     ).lower()
 
-    return 1 if topic in text else 0
+    return 1 if topic in text_content else 0
 
 
 def search_hybrid(
@@ -71,38 +37,51 @@ def search_hybrid(
 
     topic_vector = model.encode([topic])
 
-    article_map = {}
+    sql = text("""
+        SELECT
+            a.id,
+            a.title,
+            a.description,
+            a.content,
+            a.category,
+            a.url,
+            a.published_at,
+            e.embedding
+        FROM articles a
+        INNER JOIN article_embeddings e
+            ON a.id = e.article_id
+        WHERE DATE(a.published_at)
+              BETWEEN :start_date AND :end_date
+    """)
 
-    for article in articles:
-        article_map[article["url"]] = article
+    with engine.connect() as connection:
+        rows = connection.execute(
+            sql,
+            {
+                "start_date": start_date,
+                "end_date": end_date
+            }
+        ).fetchall()
 
     results = []
 
-    for embedding in embeddings:
+    for row in rows:
 
-        url = embedding["url"]
+        article = {
+            "title": row.title,
+            "description": row.description or "",
+            "content": row.content or "",
+            "category": row.category,
+            "url": row.url,
+            "published_at": row.published_at
+        }
 
-        if url not in article_map:
-            continue
-
-        article = article_map[url]
-
-        published_date = get_date(
-            article["published_at"]
-        )
-
-        if published_date is None:
-            continue
-
-        if published_date < start_date:
-            continue
-
-        if published_date > end_date:
-            continue
+        # MySQL JSON → Python list
+        article_vector = json.loads(row.embedding)
 
         embedding_score = cosine_similarity(
             topic_vector,
-            [embedding["vector"]]
+            [article_vector]
         )[0][0]
 
         keyword_score = keyword_match(

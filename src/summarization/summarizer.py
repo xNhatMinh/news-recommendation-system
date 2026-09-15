@@ -1,15 +1,12 @@
 import os
-import json
-from pathlib import Path
 from datetime import datetime
 
+from sqlalchemy import text
+from src.db.db import engine
 from dotenv import load_dotenv
 from google import genai
 
 from src.embedding.hybrid_search import search_hybrid
-
-BASE_DIR = Path(__file__).resolve().parents[2]
-DATA_DIR = BASE_DIR / "data"
 
 load_dotenv()
 
@@ -82,12 +79,11 @@ Yêu cầu:
 """
 
     response = client.models.generate_content(
-        model="gemini-3.6-flash",
+        model="gemini-3.5-flash-lite",
         contents=prompt
     )
 
     return response.text
-
 
 def save_summary(
     topic,
@@ -96,46 +92,98 @@ def save_summary(
     articles,
     summary
 ):
-    output_file = DATA_DIR / "summaries.json"
+    with engine.begin() as connection:
 
-    if output_file.exists():
-        with open(
-            output_file,
-            "r",
-            encoding="utf-8"
-        ) as f:
-            summaries = json.load(f)
-    else:
-        summaries = []
+        # Insert summary mới hoặc cập nhật summary đã tồn tại
+        insert_summary = text("""
+            INSERT INTO summaries (
+                topic,
+                start_date,
+                end_date,
+                summary
+            )
+            VALUES (
+                :topic,
+                :start_date,
+                :end_date,
+                :summary
+            )
+            ON DUPLICATE KEY UPDATE
+                id = LAST_INSERT_ID(id),
+                summary = VALUES(summary),
+                created_at = CURRENT_TIMESTAMP
+        """)
 
-    summaries.append({
-        "topic": topic,
-        "start_date": start_date.strftime("%d/%m/%Y"),
-        "end_date": end_date.strftime("%d/%m/%Y"),
-        "articles": [
+        result = connection.execute(
+            insert_summary,
             {
-                "title": article["title"],
-                "url": article["url"],
-                "published_at": article["published_at"],
-                "hybrid_score": article["hybrid_score"]
+                "topic": topic,
+                "start_date": start_date,
+                "end_date": end_date,
+                "summary": summary
             }
-            for article in articles
-        ],
-        "summary": summary
-    })
-
-    with open(
-        output_file,
-        "w",
-        encoding="utf-8"
-    ) as f:
-        json.dump(
-            summaries,
-            f,
-            ensure_ascii=False,
-            indent=2
         )
 
+        summary_id = result.lastrowid
+
+        # Xóa các bài báo cũ của summary này
+        delete_articles = text("""
+            DELETE FROM summary_articles
+            WHERE summary_id = :summary_id
+        """)
+
+        connection.execute(
+            delete_articles,
+            {
+                "summary_id": summary_id
+            }
+        )
+
+        # Tìm article_id theo URL
+        find_article = text("""
+            SELECT id
+            FROM articles
+            WHERE url = :url
+        """)
+
+        insert_summary_article = text("""
+            INSERT INTO summary_articles (
+                summary_id,
+                article_id,
+                hybrid_score
+            )
+            VALUES (
+                :summary_id,
+                :article_id,
+                :hybrid_score
+            )
+        """)
+
+        for article in articles:
+
+            article_row = connection.execute(
+                find_article,
+                {
+                    "url": article["url"]
+                }
+            ).fetchone()
+
+            if article_row is None:
+                continue
+
+            connection.execute(
+                insert_summary_article,
+                {
+                    "summary_id": summary_id,
+                    "article_id": article_row.id,
+                    "hybrid_score": article["hybrid_score"]
+                }
+            )
+
+    print(
+        f"\nĐã lưu summary vào MySQL "
+        f"(summary_id = {summary_id})"
+    )
 
 def main():
 

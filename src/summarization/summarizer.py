@@ -86,6 +86,7 @@ Yêu cầu:
     return response.text
 
 def save_summary(
+    user_id,
     topic,
     start_date,
     end_date,
@@ -94,15 +95,16 @@ def save_summary(
 ):
     with engine.begin() as connection:
 
-        # Insert summary mới hoặc cập nhật summary đã tồn tại
         insert_summary = text("""
             INSERT INTO summaries (
+                user_id,
                 topic,
                 start_date,
                 end_date,
                 summary
             )
             VALUES (
+                :user_id,
                 :topic,
                 :start_date,
                 :end_date,
@@ -110,13 +112,14 @@ def save_summary(
             )
             ON DUPLICATE KEY UPDATE
                 id = LAST_INSERT_ID(id),
-                summary = VALUES(summary),
+                summary = :summary,
                 created_at = CURRENT_TIMESTAMP
         """)
 
         result = connection.execute(
             insert_summary,
             {
+                "user_id": user_id,
                 "topic": topic,
                 "start_date": start_date,
                 "end_date": end_date,
@@ -126,7 +129,6 @@ def save_summary(
 
         summary_id = result.lastrowid
 
-        # Xóa các bài báo cũ của summary này
         delete_articles = text("""
             DELETE FROM summary_articles
             WHERE summary_id = :summary_id
@@ -139,7 +141,6 @@ def save_summary(
             }
         )
 
-        # Tìm article_id theo URL
         find_article = text("""
             SELECT id
             FROM articles
@@ -184,7 +185,7 @@ def save_summary(
         f"\nĐã lưu summary vào MySQL "
         f"(summary_id = {summary_id})"
     )
-
+    
 def main():
 
     print("=" * 60)

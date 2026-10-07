@@ -150,6 +150,7 @@ def main():
     )
 
     save_summary(
+        user_id,
         summary_topic,
         start_date,
         end_date,

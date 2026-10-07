@@ -1,15 +1,21 @@
 import requests
 from bs4 import BeautifulSoup
-import json
 import time
-from pathlib import Path
+import re
+from datetime import datetime
 
+from sqlalchemy import text
 
-BASE_DIR = Path(__file__).resolve().parents[2]
-DATA_DIR = BASE_DIR / "data"
+from src.db.db import engine
+
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0"
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 "
+        "(KHTML, like Gecko) "
+        "Chrome/131.0.0.0 Safari/537.36"
+    )
 }
 
 CATEGORIES = {
@@ -27,29 +33,66 @@ def get_soup(url):
     response = requests.get(
         url,
         headers=HEADERS,
-        timeout=10
+        timeout=15
     )
-
     response.raise_for_status()
+    return BeautifulSoup(response.text, "lxml")
 
-    return BeautifulSoup(
-        response.text,
-        "lxml"
-    )
 
 def get_page_url(category_url, page):
     if page == 1:
         return category_url
 
-    return category_url + f"-p{page}"
+    return f"{category_url}-p{page}"
 
 
-def get_article_urls(category_url, pages=5, limit_per_page=30):
+def parse_published_at(date_text):
+    if not date_text:
+        return None
 
+    match = re.search(
+        r"(\d{1,2})/(\d{1,2})/(\d{4}),\s*(\d{1,2}):(\d{2})",
+        date_text
+    )
+
+    if not match:
+        return None
+
+    day, month, year, hour, minute = map(
+        int,
+        match.groups()
+    )
+
+    return datetime(
+        year,
+        month,
+        day,
+        hour,
+        minute
+    )
+
+
+def get_latest_article_date():
+    sql = text("""
+        SELECT MAX(published_at)
+        FROM articles
+    """)
+
+    with engine.connect() as connection:
+        result = connection.execute(sql).scalar()
+
+    return result
+
+
+def get_article_urls(
+    category_url,
+    latest_date,
+    max_pages=100,
+    limit_per_page=30
+):
     urls = []
 
-    for page in range(1, pages + 1):
-
+    for page in range(1, max_pages + 1):
         page_url = get_page_url(
             category_url,
             page
@@ -59,55 +102,101 @@ def get_article_urls(category_url, pages=5, limit_per_page=30):
 
         try:
             soup = get_soup(page_url)
-
-            count = 0
-
-            for article in soup.select("article.item-news"):
-
-                link = article.select_one(
-                    "h3.title-news a"
-                )
-
-                if link:
-
-                    url = link.get("href")
-
-                    if url and url not in urls:
-                        urls.append(url)
-                        count += 1
-
-                if count >= limit_per_page:
-                    break
-
-            print(
-                f"   -> Found {count} URLs"
-            )
-
         except Exception as e:
+            print(f"   -> Error: {e}")
+            break
 
-            print(
-                f"   -> Error page {page}: {e}"
+        page_urls = []
+
+        for article in soup.select("article.item-news"):
+            link = article.select_one(
+                "h3.title-news a"
             )
 
-        time.sleep(1)
+            if not link:
+                continue
+
+            url = link.get("href")
+
+            if (
+                url
+                and url.startswith("https://vnexpress.net/")
+                and url not in urls
+                and url not in page_urls
+            ):
+                page_urls.append(url)
+
+            if len(page_urls) >= limit_per_page:
+                break
+
+        if not page_urls:
+            print("   -> Không còn bài")
+            break
+
+        urls.extend(page_urls)
+
+        print(
+            f"   -> Found {len(page_urls)} URLs"
+        )
+
+        if page >= 2:
+            old_count = 0
+
+            for url in page_urls:
+                try:
+                    article = get_article(url)
+
+                    if (
+                        article["published_at"]
+                        and article["published_at"] <= latest_date
+                    ):
+                        old_count += 1
+
+                except Exception:
+                    continue
+
+            if old_count == len(page_urls):
+                print(
+                    "   -> Đã đi qua dữ liệu cũ"
+                )
+                break
+
+        time.sleep(0.5)
 
     return urls
+
 
 def get_article(url):
     soup = get_soup(url)
 
-    title = soup.select_one("h1.title-detail")
-    description = soup.select_one("p.description")
+    title = soup.select_one(
+        "h1.title-detail"
+    )
+
+    description = soup.select_one(
+        "p.description"
+    )
 
     paragraphs = []
 
-    for p in soup.select("article.fck_detail p.Normal"):
-        text = p.get_text(" ", strip=True)
+    for p in soup.select(
+        "article.fck_detail p.Normal"
+    ):
+        text_content = p.get_text(
+            " ",
+            strip=True
+        )
 
-        if text and text not in paragraphs:
-            paragraphs.append(text)
+        if (
+            text_content
+            and text_content not in paragraphs
+        ):
+            paragraphs.append(text_content)
 
-    breadcrumb = soup.select_one("ul.breadcrumb")
+    breadcrumb = soup.select_one(
+        "ul.breadcrumb"
+    )
+
     category = ""
 
     if breadcrumb:
@@ -119,93 +208,274 @@ def get_article(url):
                 strip=True
             )
 
-    date = soup.select_one("span.date")
+    date = soup.select_one(
+        "span.date"
+    )
+
+    date_text = (
+        date.get_text(
+            " ",
+            strip=True
+        )
+        if date
+        else ""
+    )
+
+    published_at = parse_published_at(
+        date_text
+    )
 
     return {
-        "title": title.get_text(" ", strip=True) if title else "",
-        "description": description.get_text(" ", strip=True) if description else "",
+        "title": (
+            title.get_text(
+                " ",
+                strip=True
+            )
+            if title
+            else ""
+        ),
+        "description": (
+            description.get_text(
+                " ",
+                strip=True
+            )
+            if description
+            else ""
+        ),
         "content": "\n".join(paragraphs),
         "category": category,
         "url": url,
-        "published_at": date.get_text(" ", strip=True) if date else ""
+        "published_at": published_at
     }
 
 
+def article_exists(connection, url):
+    sql = text("""
+        SELECT id
+        FROM articles
+        WHERE url = :url
+        LIMIT 1
+    """)
+
+    result = connection.execute(
+        sql,
+        {"url": url}
+    ).fetchone()
+
+    return result is not None
+
+
+def insert_article(connection, article):
+    sql = text("""
+        INSERT INTO articles (
+            title,
+            description,
+            content,
+            category,
+            url,
+            published_at
+        )
+        VALUES (
+            :title,
+            :description,
+            :content,
+            :category,
+            :url,
+            :published_at
+        )
+    """)
+
+    connection.execute(
+        sql,
+        {
+            "title": article["title"],
+            "description": article["description"],
+            "content": article["content"],
+            "category": article["category"],
+            "url": article["url"],
+            "published_at": article["published_at"]
+        }
+    )
+
+
 def main():
-    print("Starting crawler...\n")
+    print("=" * 60)
+    print("VNEXPRESS INCREMENTAL CRAWLER")
+    print("=" * 60)
+
+    latest_date = get_latest_article_date()
+
+    if latest_date:
+        print(
+            f"Dữ liệu mới nhất trong DB: "
+            f"{latest_date}"
+        )
+    else:
+        print(
+            "Database chưa có dữ liệu."
+        )
+        latest_date = datetime.min
+
+    current_date = datetime.now()
+
+    print(
+        f"Ngày hiện tại: {current_date}"
+    )
 
     all_urls = []
 
     for category_name, category_url in CATEGORIES.items():
-        print(f"Collecting: {category_name}")
+        print(
+            f"\nCollecting: {category_name}"
+        )
 
         try:
             urls = get_article_urls(
                 category_url,
-                pages=5,
-                limit_per_page=30
+                latest_date
             )
 
-            print(f"-> Found {len(urls)} URLs")
+            print(
+                f"-> Found {len(urls)} URLs"
+            )
 
             for url in urls:
                 if url not in all_urls:
                     all_urls.append(url)
 
         except Exception as e:
-            print(f"Error collecting {category_name}: {e}")
+            print(
+                f"-> Error: {e}"
+            )
 
-        time.sleep(1)
+        time.sleep(0.5)
 
-    print(f"\nTotal unique URLs: {len(all_urls)}")
+    print(
+        f"\nTotal unique URLs: "
+        f"{len(all_urls)}"
+    )
 
-    articles = []
+    new_articles = []
 
-    for i, url in enumerate(all_urls, 1):
-        print(f"[{i}/{len(all_urls)}] Crawling...")
+    for i, url in enumerate(
+        all_urls,
+        1
+    ):
+        print(
+            f"[{i}/{len(all_urls)}] Crawling..."
+        )
 
         try:
             article = get_article(url)
 
-            if (
-                article["title"]
-                and article["description"]
-                and article["content"]
-            ):
-                articles.append(article)
-                print(f"-> {article['title']}")
-            else:
-                print("-> Skip: missing data")
+            published_at = article[
+                "published_at"
+            ]
+
+            if not published_at:
+                print(
+                    "-> Skip: không có ngày đăng"
+                )
+                continue
+
+            if published_at <= latest_date:
+                print(
+                    "-> Skip: bài cũ"
+                )
+                continue
+
+            if published_at > current_date:
+                print(
+                    "-> Skip: ngày không hợp lệ"
+                )
+                continue
+
+            if not article["title"]:
+                print(
+                    "-> Skip: thiếu tiêu đề"
+                )
+                continue
+
+            if not article["content"]:
+                print(
+                    "-> Skip: thiếu nội dung"
+                )
+                continue
+
+            new_articles.append(article)
+
+            print(
+                f"-> NEW: "
+                f"{article['title']}"
+            )
 
         except Exception as e:
-            print(f"-> Error: {e}")
+            print(
+                f"-> Error: {e}"
+            )
 
-        time.sleep(1)
+        time.sleep(0.2)
 
-    unique_articles = []
-    seen_urls = set()
+    print(
+        f"\nNew articles: "
+        f"{len(new_articles)}"
+    )
 
-    for article in articles:
-        if article["url"] not in seen_urls:
-            seen_urls.add(article["url"])
-            unique_articles.append(article)
+    inserted = 0
+    skipped = 0
 
-    output_file = DATA_DIR / "articles.json"
+    print("\n" + "=" * 60)
+    print("INSERT INTO MYSQL")
+    print("=" * 60)
 
-    with open(
-        output_file,
-        "w",
-        encoding="utf-8"
-    ) as f:
-        json.dump(
-            unique_articles,
-            f,
-            ensure_ascii=False,
-            indent=2
-        )
+    with engine.begin() as connection:
 
-    print(f"\nSaved {len(unique_articles)} articles")
-    print(f"File: {output_file}")
+        for article in new_articles:
+
+            if article_exists(
+                connection,
+                article["url"]
+            ):
+                skipped += 1
+
+                print(
+                    f"SKIP: "
+                    f"{article['title']}"
+                )
+
+                continue
+
+            insert_article(
+                connection,
+                article
+            )
+
+            inserted += 1
+
+            print(
+                f"INSERT: "
+                f"{article['title']}"
+            )
+
+    print("\n" + "=" * 60)
+    print("CRAWLER FINISHED")
+    print("=" * 60)
+
+    print(
+        f"URLs đã crawl: {len(all_urls)}"
+    )
+
+    print(
+        f"Bài mới: {len(new_articles)}"
+    )
+
+    print(
+        f"INSERT vào MySQL: {inserted}"
+    )
+
+    print(
+        f"Đã tồn tại: {skipped}"
+    )
 
 
 if __name__ == "__main__":

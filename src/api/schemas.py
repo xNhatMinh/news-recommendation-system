@@ -1,7 +1,6 @@
 from datetime import date
 from pydantic import BaseModel, EmailStr, Field
 
-
 class RecommendationRequest(BaseModel):
     user_id: int
     start_date: date
@@ -46,3 +45,5 @@ class LoginResponse(BaseModel):
     user_id: int
     email: EmailStr
     message: str
+    access_token: str
+    token_type: str

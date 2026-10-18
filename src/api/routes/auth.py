@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from src.api.schemas import RegisterRequest, RegisterResponse
 from src.api.schemas import LoginRequest, LoginResponse
 from src.db.db import engine
+from src.api.security import create_access_token
 
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -88,8 +89,12 @@ def login(request: LoginRequest):
             detail="Email or password is incorrect",
         )
 
+    token = create_access_token(user["id"])
+
     return LoginResponse(
         user_id=user["id"],
         email=user["email"],
         message="Login successful",
+        access_token=token,
+        token_type="bearer",
     )

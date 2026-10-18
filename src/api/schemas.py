@@ -1,5 +1,5 @@
 from datetime import date
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field
 
 
 class RecommendationRequest(BaseModel):
@@ -26,3 +26,14 @@ class RecommendationResponse(BaseModel):
     start_date: date
     end_date: date
     results: list[RecommendationItem]
+
+
+class RegisterRequest(BaseModel):
+    email: EmailStr = Field(max_length=254)
+    password: str = Field(min_length=8)
+
+
+class RegisterResponse(BaseModel):
+    user_id: int
+    email: EmailStr
+    message: str

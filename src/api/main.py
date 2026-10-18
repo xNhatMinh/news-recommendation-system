@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from src.api.routes.auth import router as auth_router
 from src.api.routes.recommendation import router as recommendation_router
 from src.api.routes.preferences import router as preferences_router
 from src.api.routes.history import router as history_router
@@ -12,6 +13,7 @@ app = FastAPI(
 )
 
 
+app.include_router(auth_router)
 app.include_router(recommendation_router)
 app.include_router(preferences_router)
 app.include_router(history_router)

@@ -1,3 +1,15 @@
 requests
 beautifulsoup4
 lxml
+email-validator
+sentence-transformers==5.1.2
+transformers==4.57.6
+fastapi
+uvicorn[standard]
+pydantic
+SQLAlchemy
+PyMySQL
+python-dotenv
+scikit-learn
+google-genai
+pwdlib[argon2]

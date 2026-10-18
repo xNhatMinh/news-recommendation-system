@@ -37,3 +37,12 @@ class RegisterResponse(BaseModel):
     user_id: int
     email: EmailStr
     message: str
+
+class LoginRequest(BaseModel):
+    email: EmailStr = Field(max_length=254)
+    password: str = Field(min_length=8)
+
+class LoginResponse(BaseModel):
+    user_id: int
+    email: EmailStr
+    message: str

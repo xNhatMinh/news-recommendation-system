@@ -6,6 +6,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from src.api.schemas import RegisterRequest, RegisterResponse
+from src.api.schemas import LoginRequest, LoginResponse
 from src.db.db import engine
 
 
@@ -54,4 +55,41 @@ def register(request: RegisterRequest):
         user_id=user_id,
         email=request.email,
         message="Registration successful",
+    )
+
+def find_user_by_email(email: str):
+    with engine.connect() as connection:
+        result = connection.execute(
+            text("""
+                SELECT id, email, password_hash
+                FROM users
+                WHERE email = :email
+            """),
+            {"email": email},
+        )
+
+        return result.mappings().first()
+
+
+@router.post("/login", response_model=LoginResponse)
+def login(request: LoginRequest):
+    user = find_user_by_email(request.email)
+
+    if (
+        user is None
+        or not user["password_hash"]
+        or not password_hash.verify(
+            request.password,
+            user["password_hash"],
+        )
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Email or password is incorrect",
+        )
+
+    return LoginResponse(
+        user_id=user["id"],
+        email=user["email"],
+        message="Login successful",
     )

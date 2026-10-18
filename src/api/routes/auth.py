@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from pwdlib import PasswordHash
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from src.api.schemas import RegisterRequest, RegisterResponse
 from src.api.schemas import LoginRequest, LoginResponse
 from src.db.db import engine
-from src.api.security import create_access_token
+from src.api.security import create_access_token, get_token_payload
 
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -98,3 +98,37 @@ def login(request: LoginRequest):
         access_token=token,
         token_type="bearer",
     )
+
+
+@router.get("/me")
+def get_me(payload=Depends(get_token_payload)):
+    try:
+        user_id = int(payload["sub"])
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid user ID in token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    with engine.connect() as connection:
+        user = connection.execute(
+            text("""
+                SELECT id, email
+                FROM users
+                WHERE id = :user_id
+            """),
+            {"user_id": user_id},
+        ).mappings().first()
+
+    if user is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Account not found",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return {
+        "user_id": user["id"],
+        "email": user["email"],
+    }

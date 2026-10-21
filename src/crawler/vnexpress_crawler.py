@@ -169,6 +169,13 @@ def get_article_urls(
 def get_article(url):
     soup = get_soup(url)
 
+    image_tag = soup.find("meta", property="og:image")
+
+    image_url = None
+
+    if image_tag:
+        image_url = image_tag.get("content")
+
     title = soup.select_one(
         "h1.title-detail"
     )
@@ -245,6 +252,7 @@ def get_article(url):
         "content": "\n".join(paragraphs),
         "category": category,
         "url": url,
+        "image_url": image_url,
         "published_at": published_at
     }
 
@@ -273,6 +281,7 @@ def insert_article(connection, article):
             content,
             category,
             url,
+            image_url,
             published_at
         )
         VALUES (
@@ -281,6 +290,7 @@ def insert_article(connection, article):
             :content,
             :category,
             :url,
+            :image_url,
             :published_at
         )
     """)
@@ -293,6 +303,7 @@ def insert_article(connection, article):
             "content": article["content"],
             "category": article["category"],
             "url": article["url"],
+            "image_url": article.get("image_url"),
             "published_at": article["published_at"]
         }
     )

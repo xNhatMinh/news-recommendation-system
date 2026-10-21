@@ -13,6 +13,7 @@ class RecommendationItem(BaseModel):
     description: str
     category: str | None
     url: str
+    image_url: str | None = None
     published_at: str | None
     embedding_score: float
     keyword_score: int

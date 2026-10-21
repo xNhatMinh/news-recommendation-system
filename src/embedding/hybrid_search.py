@@ -45,6 +45,7 @@ def search_hybrid(
             a.content,
             a.category,
             a.url,
+            a.image_url,
             a.published_at,
             e.embedding
         FROM articles a
@@ -73,6 +74,7 @@ def search_hybrid(
             "content": row.content or "",
             "category": row.category,
             "url": row.url,
+            "image_url": row.image_url,
             "published_at": row.published_at
         }
 
@@ -100,6 +102,7 @@ def search_hybrid(
             "content": article["content"],
             "category": article["category"],
             "url": article["url"],
+            "image_url": article["image_url"],
             "published_at": article["published_at"],
             "embedding_score": float(embedding_score),
             "keyword_score": keyword_score,

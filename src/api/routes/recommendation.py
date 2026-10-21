@@ -1,4 +1,5 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from src.api.routes.auth import get_me
 
 from src.api.schemas import (
     RecommendationRequest,
@@ -14,11 +15,12 @@ router = APIRouter(
 
 
 @router.post("", response_model=RecommendationResponse)
-def get_recommendations(
-    request: RecommendationRequest
+def recommend_articles(
+    request: RecommendationRequest,
+    user=Depends(get_me)
 ):
     results = recommend(
-        user_id=request.user_id,
+        user_id=user["user_id"],
         start_date=request.start_date,
         end_date=request.end_date,
         top_k=request.top_k
@@ -37,7 +39,7 @@ def get_recommendations(
     ]
 
     return {
-        "user_id": request.user_id,
+        "user_id": user["user_id"],
         "start_date": request.start_date,
         "end_date": request.end_date,
         "results": results

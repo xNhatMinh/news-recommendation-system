@@ -26,28 +26,26 @@ def get_user_preferences(user_id):
         for row in rows
     ]
 
-def update_user_preference(user_id, topic, weight):
-    sql = text("""
-        INSERT INTO user_preferences (
-            user_id,
-            topic,
-            weight
-        )
-        VALUES (
-            :user_id,
-            :topic,
-            :weight
-        )
-        ON DUPLICATE KEY UPDATE
-            weight = :weight
-    """)
-
+def save_user_preferences(user_id, topics):
     with engine.begin() as connection:
         connection.execute(
-            sql,
-            {
-                "user_id": user_id,
-                "topic": topic,
-                "weight": weight
-            }
+            text("""
+                DELETE FROM user_preferences
+                WHERE user_id = :user_id
+            """),
+            {"user_id": user_id},
         )
+
+        for topic in topics:
+            connection.execute(
+                text("""
+                    INSERT INTO user_preferences
+                        (user_id, topic, weight)
+                    VALUES
+                        (:user_id, :topic, 1.0)
+                """),
+                {
+                    "user_id": user_id,
+                    "topic": topic,
+                },
+            )

@@ -1,8 +1,10 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
+from src.api.schemas import PreferencesRequest
+from src.api.routes.auth import get_me
 
 from src.recommendation.user_profile import (
     get_user_preferences,
-    update_user_preference
+    save_user_preferences,
 )
 
 
@@ -12,29 +14,38 @@ router = APIRouter(
 )
 
 
-@router.get("/{user_id}")
-def get_preferences(user_id: int):
+@router.get("")
+def get_preferences(user=Depends(get_me)):
+    user_id = user["user_id"]
+
     return {
         "user_id": user_id,
-        "preferences": get_user_preferences(user_id)
+        "preferences": get_user_preferences(user_id),
     }
 
 
-@router.put("/{user_id}")
-def update_preference(
-    user_id: int,
-    topic: str,
-    weight: float
+@router.put("")
+def update_preferences(
+    request: PreferencesRequest,
+    user=Depends(get_me),
 ):
-    update_user_preference(
-        user_id=user_id,
-        topic=topic,
-        weight=weight
-    )
+    topics = []
+
+    for topic in request.topics:
+        topic = topic.strip()
+
+        if not topic or len(topic) > 200:
+            raise HTTPException(
+                status_code=422,
+                detail="Topic must contain 1 to 200 characters",
+            )
+
+        if topic not in topics:
+            topics.append(topic)
+
+    save_user_preferences(user["user_id"], topics)
 
     return {
-        "message": "Preference updated successfully",
-        "user_id": user_id,
-        "topic": topic,
-        "weight": weight
+        "message": "Preferences saved successfully",
+        "topics": topics,
     }

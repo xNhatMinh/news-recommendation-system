@@ -1,8 +1,8 @@
 from datetime import date
 from pydantic import BaseModel, EmailStr, Field
 
+
 class RecommendationRequest(BaseModel):
-    user_id: int
     start_date: date
     end_date: date
     top_k: int = 10
@@ -47,3 +47,6 @@ class LoginResponse(BaseModel):
     message: str
     access_token: str
     token_type: str
+
+class PreferencesRequest(BaseModel):
+    topics: list[str]

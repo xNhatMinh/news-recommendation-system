@@ -54,3 +54,8 @@ class PreferencesRequest(BaseModel):
 
 class DeviceTokenRequest(BaseModel):
     fcm_token: str = Field(min_length=1, max_length=512)
+
+class SummaryRequest(BaseModel):
+    topic: str = Field(min_length=1, max_length=200)
+    start_date: date
+    end_date: date

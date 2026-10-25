@@ -51,31 +51,25 @@ Nội dung:
 {article['content']}
 
 """
-    
-    prompt = f"""
-Bạn là một hệ thống AI tổng hợp tin tức.
 
-Chủ đề:
-{topic}
+        prompt = f"""
+Hãy tổng hợp tin về chủ đề: {topic}.
 
 Khoảng thời gian:
 {start_date.strftime("%d/%m/%Y")} - {end_date.strftime("%d/%m/%Y")}
 
-Dưới đây là các bài báo đã được hệ thống
-xác định là có liên quan đến chủ đề.
-
+Các bài báo:
 {news_text}
 
-Hãy tổng hợp các bài báo trên thành một bản tin
-ngắn gọn và dễ hiểu.
-
 Yêu cầu:
-1. Chỉ sử dụng thông tin xuất hiện trong các bài báo.
-2. Không tự bịa thêm thông tin.
-3. Nêu các diễn biến và thông tin chính.
-4. Nếu nhiều bài đề cập cùng một sự kiện thì gộp lại.
-5. Không cần liệt kê lại toàn bộ nội dung từng bài.
-6. Cuối cùng liệt kê các nguồn bài báo được sử dụng.
+1. Chỉ dùng thông tin trong các bài báo, không tự bổ sung.
+2. Viết tối đa 200 từ, dùng câu ngắn, dễ hiểu.
+3. Trình bày tối đa 5 ý chính, mỗi ý bắt đầu bằng dấu •.
+4. Mỗi ý dài 1-2 câu. Giữa các ý có một dòng trống.
+5. Các bài nói về cùng sự kiện thì gộp lại.
+6. Không viết lời mở đầu, kết luận hoặc danh sách nguồn.
+7. Chỉ trả văn bản thuần, không dùng Markdown,
+   không dùng ký hiệu # hoặc dấu * để định dạng.
 """
 
     response = client.models.generate_content(

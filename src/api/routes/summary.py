@@ -1,61 +1,64 @@
-from datetime import date
+from fastapi import APIRouter, Depends, HTTPException
 
-from fastapi import APIRouter
-from sqlalchemy import text
-
-from src.db.db import engine
-
-
-router = APIRouter(
-    prefix="/summary",
-    tags=["Summary"]
-)
+from src.api.routes.auth import get_me
+from src.api.schemas import SummaryRequest
+from src.embedding.hybrid_search import search_hybrid
+from src.summarization.summarizer import summarize_articles
 
 
-@router.get("/{user_id}")
-def get_summary(
-    user_id: int,
-    start_date: date,
-    end_date: date
+router = APIRouter(prefix="/summary", tags=["Summary"])
+
+
+@router.post("")
+def create_summary(
+    request: SummaryRequest,
+    user=Depends(get_me)
 ):
-    sql = text("""
-        SELECT
-            id,
-            user_id,
-            topic,
-            start_date,
-            end_date,
-            summary,
-            created_at
-        FROM summaries
-        WHERE user_id = :user_id
-          AND start_date = :start_date
-          AND end_date = :end_date
-        ORDER BY created_at DESC
-        LIMIT 1
-    """)
+    if request.start_date > request.end_date:
+        raise HTTPException(
+            status_code=400,
+            detail="Ngày bắt đầu phải trước hoặc bằng ngày kết thúc"
+        )
 
-    with engine.connect() as connection:
-        row = connection.execute(
-            sql,
-            {
-                "user_id": user_id,
-                "start_date": start_date,
-                "end_date": end_date
-            }
-        ).fetchone()
+    articles = search_hybrid(
+        topic=request.topic,
+        start_date=request.start_date,
+        end_date=request.end_date,
+        top_k=5
+    )
 
-    if row is None:
-        return {
-            "message": "Summary not found"
-        }
+    articles = [
+        article
+        for article in articles
+        if article["hybrid_score"] >= 0.5
+    ]
+
+    if not articles:
+        raise HTTPException(
+            status_code=404,
+            detail="Chưa có bài báo phù hợp để tổng hợp"
+        )
+
+    summary = summarize_articles(
+        topic=request.topic,
+        start_date=request.start_date,
+        end_date=request.end_date,
+        articles=articles
+    )
+
+    if not summary or not summary.strip():
+        raise HTTPException(
+            status_code=502,
+            detail="Gemini chưa trả về nội dung tổng hợp"
+        )
 
     return {
-        "id": row.id,
-        "user_id": row.user_id,
-        "topic": row.topic,
-        "start_date": row.start_date,
-        "end_date": row.end_date,
-        "summary": row.summary,
-        "created_at": row.created_at
+        "summary": summary,
+        "sources": [
+            {
+                "title": article["title"],
+                "url": article["url"]
+            }
+            for article in articles
+        ]
     }

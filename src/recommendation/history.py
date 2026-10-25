@@ -49,7 +49,7 @@ def get_recommendation_history(user_id, limit=20):
         JOIN articles a
             ON rh.article_id = a.id
         WHERE rh.user_id = :user_id
-        ORDER BY rh.created_at DESC
+        ORDER BY rh.created_at DESC, rh.id DESC
         LIMIT :limit
     """)
 

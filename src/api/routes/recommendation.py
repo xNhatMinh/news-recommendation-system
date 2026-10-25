@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 from src.api.routes.auth import get_me
+from src.recommendation.history import save_recommendation_history
 
 from src.api.schemas import (
     RecommendationRequest,
@@ -25,6 +26,12 @@ def recommend_articles(
         end_date=request.end_date,
         top_k=request.top_k
     )
+
+    if results:
+        save_recommendation_history(
+            user_id=user["user_id"],
+            articles=results
+        )
 
     results = [
         {

@@ -435,6 +435,8 @@ def main():
     inserted = 0
     skipped = 0
 
+    inserted_articles = []
+
     print("\n" + "=" * 60)
     print("INSERT INTO MYSQL")
     print("=" * 60)
@@ -463,6 +465,8 @@ def main():
 
             inserted += 1
 
+            inserted_articles.append(article)
+
             print(
                 f"INSERT: "
                 f"{article['title']}"
@@ -487,6 +491,8 @@ def main():
     print(
         f"Đã tồn tại: {skipped}"
     )
+
+    return inserted_articles
 
 
 if __name__ == "__main__":

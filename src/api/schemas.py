@@ -51,3 +51,6 @@ class LoginResponse(BaseModel):
 
 class PreferencesRequest(BaseModel):
     topics: list[str]
+
+class DeviceTokenRequest(BaseModel):
+    fcm_token: str = Field(min_length=1, max_length=512)

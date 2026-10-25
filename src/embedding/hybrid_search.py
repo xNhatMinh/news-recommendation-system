@@ -32,7 +32,8 @@ def search_hybrid(
     topic,
     start_date,
     end_date,
-    top_k=10
+    top_k=10,
+    article_urls=None
 ):
 
     topic_vector = model.encode([topic])
@@ -67,6 +68,8 @@ def search_hybrid(
     results = []
 
     for row in rows:
+        if article_urls is not None and row.url not in article_urls:
+            continue
 
         article = {
             "title": row.title,

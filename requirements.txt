@@ -14,3 +14,4 @@ scikit-learn
 google-genai
 pwdlib[argon2]
 PyJWT
+firebase-admin

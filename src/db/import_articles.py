@@ -58,6 +58,7 @@ def import_articles():
             content,
             category,
             url,
+            image_url,
             published_at
         )
         VALUES (
@@ -66,6 +67,7 @@ def import_articles():
             :content,
             :category,
             :url,
+            :image_url,
             :published_at
         )
         ON DUPLICATE KEY UPDATE
@@ -73,6 +75,7 @@ def import_articles():
             description = VALUES(description),
             content = VALUES(content),
             category = VALUES(category),
+            image_url = COALESCE(NULLIF(VALUES(image_url), ''), image_url),
             published_at = VALUES(published_at)
     """)
 
@@ -92,6 +95,7 @@ def import_articles():
                 "content": article.get("content"),
                 "category": article.get("category"),
                 "url": article.get("url"),
+                "image_url": article.get("image_url"),
                 "published_at": published_at
             })
 

@@ -4,6 +4,7 @@ from src.embedding.hybrid_search import search_hybrid
 from src.summarization.summarizer import summarize_articles, save_summary
 from src.recommendation.user_profile import get_user_preferences
 from src.recommendation.history import save_recommendation_history
+from src.news_topics import MAIN_TOPICS
 
 
 def recommend(
@@ -20,6 +21,7 @@ def recommend(
 
         topic = preference["topic"]
         weight = preference["weight"]
+        is_main_topic = topic.strip().casefold() in {name.casefold() for name in MAIN_TOPICS}
 
         results = search_hybrid(
             topic,
@@ -29,6 +31,8 @@ def recommend(
         )
 
         for article in results:
+            if not is_main_topic and article["hybrid_score"] < 0.5:
+                continue
 
             url = article["url"]
 

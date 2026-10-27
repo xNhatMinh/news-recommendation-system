@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from pydantic import BaseModel, EmailStr, Field
 
 
@@ -26,6 +26,21 @@ class RecommendationResponse(BaseModel):
     start_date: date
     end_date: date
     results: list[RecommendationItem]
+
+
+class ArticleListItem(BaseModel):
+    title: str
+    description: str
+    category: str | None
+    url: str
+    image_url: str | None = None
+    published_at: datetime | None
+
+
+class LatestArticlesResponse(BaseModel):
+    results: list[ArticleListItem]
+    categories: list[str]
+    has_more: bool
 
 
 class RegisterRequest(BaseModel):

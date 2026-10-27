@@ -7,6 +7,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sqlalchemy import text
 
 from src.db.db import engine
+from src.news_topics import MAIN_TOPICS
 
 
 model = SentenceTransformer(
@@ -36,15 +37,17 @@ def search_hybrid(
     article_urls=None
 ):
 
+    topic = topic.strip()
+    main_topic = next((name for name in MAIN_TOPICS if name.casefold() == topic.casefold()), None)
     topic_vector = model.encode([topic])
 
-    sql = text("""
+    sql = """
         SELECT
             a.id,
             a.title,
             a.description,
             a.content,
-            a.category,
+            COALESCE(NULLIF(a.main_category, ''), a.category) AS category,
             a.url,
             a.image_url,
             a.published_at,
@@ -54,16 +57,14 @@ def search_hybrid(
             ON a.id = e.article_id
         WHERE DATE(a.published_at)
               BETWEEN :start_date AND :end_date
-    """)
+    """
+    parameters = {"start_date": start_date, "end_date": end_date}
+    if main_topic is not None:
+        sql += " AND COALESCE(NULLIF(a.main_category, ''), a.category) = :main_topic"
+        parameters["main_topic"] = main_topic
 
     with engine.connect() as connection:
-        rows = connection.execute(
-            sql,
-            {
-                "start_date": start_date,
-                "end_date": end_date
-            }
-        ).fetchall()
+        rows = connection.execute(text(sql), parameters).fetchall()
 
     results = []
 

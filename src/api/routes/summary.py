@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from src.api.routes.auth import get_me
 from src.api.schemas import SummaryRequest
+from src.news_topics import MAIN_TOPICS
 from src.embedding.hybrid_search import search_hybrid
 from src.summarization.summarizer import summarize_articles
 
@@ -27,11 +28,10 @@ def create_summary(
         top_k=5
     )
 
-    articles = [
-        article
-        for article in articles
-        if article["hybrid_score"] >= 0.5
-    ]
+    # Chủ đề chính đã lọc đúng nhóm; từ khóa riêng vẫn cần ngưỡng liên quan.
+    is_main_topic = request.topic.strip().casefold() in {topic.casefold() for topic in MAIN_TOPICS}
+    if not is_main_topic:
+        articles = [article for article in articles if article["hybrid_score"] >= 0.5]
 
     if not articles:
         raise HTTPException(

@@ -1,12 +1,16 @@
+import argparse
+import sys
 import requests
 from bs4 import BeautifulSoup
 import time
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
+from urllib.parse import urljoin, urlparse
 
 from sqlalchemy import text
 
 from src.db.db import engine
+from src.news_topics import CRAWL_CATEGORIES, get_main_category
 
 
 HEADERS = {
@@ -18,15 +22,7 @@ HEADERS = {
     )
 }
 
-CATEGORIES = {
-    "Thời sự": "https://vnexpress.net/thoi-su",
-    "Thế giới": "https://vnexpress.net/the-gioi",
-    "Kinh doanh": "https://vnexpress.net/kinh-doanh",
-    "Khoa học": "https://vnexpress.net/khoa-hoc",
-    "Thể thao": "https://vnexpress.net/the-thao",
-    "Giải trí": "https://vnexpress.net/giai-tri",
-    "Sức khỏe": "https://vnexpress.net/suc-khoe"
-}
+CATEGORIES = CRAWL_CATEGORIES
 
 
 def get_soup(url):
@@ -110,7 +106,7 @@ def get_article_urls(
 
         for article in soup.select("article.item-news"):
             link = article.select_one(
-                "h3.title-news a"
+                ".title-news a[href]"
             )
 
             if not link:
@@ -165,16 +161,72 @@ def get_article_urls(
 
     return urls
 
+def get_content_html(soup, url):
+    body = soup.select_one("article.fck_detail")
+
+    if body is None:
+        return ""
+
+    for node in body.select("script, style, iframe, noscript"):
+        node.decompose()
+
+    for element in body.select("img, picture source"):
+        lazy_src = (
+            element.get("data-src")
+            or element.get("data-original")
+        )
+
+        src = lazy_src or element.get("src")
+
+        if src:
+            element["src"] = urljoin(url, src)
+
+        lazy_srcset = element.get("data-srcset")
+
+        if lazy_srcset:
+            element["srcset"] = lazy_srcset
+        elif lazy_src:
+            element.attrs.pop("srcset", None)
+
+        element.attrs.pop("loading", None)
+
+    for element in body.find_all(True):
+        for attribute in list(element.attrs):
+            if attribute.lower().startswith("on"):
+                del element[attribute]
+
+    return body.decode_contents()
+
+def get_cover_image(soup, url):
+    """Ưu tiên ảnh bìa của báo, thiếu thì lấy ảnh đầu trong nội dung."""
+    candidates = []
+    for selector in (
+        'meta[property="og:image"]', 'meta[name="og:image"]',
+        'meta[name="twitter:image"]', 'meta[property="twitter:image"]'
+    ):
+        tag = soup.select_one(selector)
+        if tag:
+            candidates.append(tag.get("content"))
+
+    body = soup.select_one("article.fck_detail")
+    for image in (body if body is not None else soup).select("img"):
+        candidates.extend([
+            image.get("data-src"), image.get("data-original"), image.get("src")
+        ])
+
+    for candidate in candidates:
+        if not candidate or not candidate.strip() or candidate.startswith("#"):
+            continue
+        image_url = urljoin(url, candidate.strip())
+        if urlparse(image_url).scheme in ("http", "https"):
+            return image_url
+    return None
+
 
 def get_article(url):
     soup = get_soup(url)
 
-    image_tag = soup.find("meta", property="og:image")
-
-    image_url = None
-
-    if image_tag:
-        image_url = image_tag.get("content")
+    image_url = get_cover_image(soup, url)
 
     title = soup.select_one(
         "h1.title-detail"
@@ -250,7 +302,9 @@ def get_article(url):
             else ""
         ),
         "content": "\n".join(paragraphs),
+        "content_html": get_content_html(soup, url),
         "category": category,
+        "main_category": get_main_category(soup),
         "url": url,
         "image_url": image_url,
         "published_at": published_at
@@ -279,7 +333,9 @@ def insert_article(connection, article):
             title,
             description,
             content,
+            content_html,
             category,
+            main_category,
             url,
             image_url,
             published_at
@@ -288,7 +344,9 @@ def insert_article(connection, article):
             :title,
             :description,
             :content,
+            :content_html,
             :category,
+            :main_category,
             :url,
             :image_url,
             :published_at
@@ -301,7 +359,9 @@ def insert_article(connection, article):
             "title": article["title"],
             "description": article["description"],
             "content": article["content"],
+            "content_html": article.get("content_html", ""),
             "category": article["category"],
+            "main_category": article.get("main_category"),
             "url": article["url"],
             "image_url": article.get("image_url"),
             "published_at": article["published_at"]
@@ -309,16 +369,30 @@ def insert_article(connection, article):
     )
 
 
-def main():
+def main(categories=None, days=None, max_pages=100):
+    if days is not None and days < 1:
+        raise ValueError("days phải lớn hơn 0")
+    if max_pages < 1:
+        raise ValueError("max_pages phải lớn hơn 0")
+    selected_categories = {
+        topic: CATEGORIES[topic]
+        for topic in (categories if categories is not None else CATEGORIES)
+    }
     print("=" * 60)
     print("VNEXPRESS INCREMENTAL CRAWLER")
     print("=" * 60)
 
-    latest_date = get_latest_article_date()
+    current_date = datetime.now()
+    if days is None:
+        latest_date = get_latest_article_date()
+    else:
+        # Lấy từ đầu ngày đầu tiên, kể cả khi chủ đề chưa có dữ liệu.
+        latest_date = current_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        latest_date -= timedelta(days=days - 1, microseconds=1)
 
     if latest_date:
         print(
-            f"Dữ liệu mới nhất trong DB: "
+            f"Mốc lấy tin: "
             f"{latest_date}"
         )
     else:
@@ -327,15 +401,13 @@ def main():
         )
         latest_date = datetime.min
 
-    current_date = datetime.now()
-
     print(
         f"Ngày hiện tại: {current_date}"
     )
 
     all_urls = []
 
-    for category_name, category_url in CATEGORIES.items():
+    for category_name, category_url in selected_categories.items():
         print(
             f"\nCollecting: {category_name}"
         )
@@ -343,7 +415,8 @@ def main():
         try:
             urls = get_article_urls(
                 category_url,
-                latest_date
+                latest_date,
+                max_pages=max_pages
             )
 
             print(
@@ -411,6 +484,10 @@ def main():
                 print(
                     "-> Skip: thiếu nội dung"
                 )
+                continue
+
+            if categories is not None and article.get("main_category") not in selected_categories:
+                print("-> Skip: bài thuộc chủ đề khác")
                 continue
 
             new_articles.append(article)
@@ -496,4 +573,18 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    parser = argparse.ArgumentParser(description="Crawl tin mới hoặc bổ sung từng chủ đề.")
+    parser.add_argument("--categories", nargs="+", choices=list(CATEGORIES),
+                        help="Các chủ đề cần crawl; mặc định là tất cả.")
+    parser.add_argument("--days", type=int,
+                        help="Lấy bài trong N ngày gần đây, dùng khi bổ sung chủ đề mới.")
+    parser.add_argument("--max-pages", type=int, default=100,
+                        help="Số trang tối đa của mỗi chủ đề.")
+    args = parser.parse_args()
+    if args.days is not None and args.days < 1:
+        parser.error("--days phải lớn hơn 0")
+    if args.max_pages < 1:
+        parser.error("--max-pages phải lớn hơn 0")
+    main(categories=args.categories, days=args.days, max_pages=args.max_pages)

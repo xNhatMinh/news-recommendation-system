@@ -2,7 +2,6 @@
 
 from urllib.parse import urlparse
 
-
 CRAWL_CATEGORIES = {
     "Thời sự": "https://vnexpress.net/thoi-su",
     "Thế giới": "https://vnexpress.net/the-gioi",
@@ -23,19 +22,42 @@ MAIN_TOPICS = list(CRAWL_CATEGORIES)
 
 # Báo gộp Khoa học và Công nghệ; các mục sau được tách vào Công nghệ.
 TECHNOLOGY_SECTIONS = {
-    "ai", "ai4vn-2026", "thiet-bi", "chuyen-doi-so", "doi-moi-sang-tao",
-    "tech-awards", "nhip-song-so", "san-pham", "dien-tu-gia-dung",
+    "ai",
+    "ai4vn-2026",
+    "thiet-bi",
+    "chuyen-doi-so",
+    "doi-moi-sang-tao",
+    "tech-awards",
+    "nhip-song-so",
+    "san-pham",
+    "dien-tu-gia-dung",
 }
+
+
+def get_main_topic(topic):
+    """Chuẩn hóa tên chủ đề chính; từ khóa tự nhập thì trả về None."""
+    for name in MAIN_TOPICS:
+        if name.casefold() == topic.strip().casefold():
+            return name
+    return None
 
 
 def get_main_category(soup):
     """Đọc đường dẫn breadcrumb, không đoán chủ đề từ tiêu đề bài."""
     links = soup.select("ul.breadcrumb a[href]")
-    roots = {urlparse(url).path.strip("/"): topic
-             for topic, url in CRAWL_CATEGORIES.items()
-             if topic != "Công nghệ"}
-    roots.update({"khoa-hoc": "Khoa học", "so-hoa": "Công nghệ",
-                  "cong-nghe": "Công nghệ", "gia-dinh": "Đời sống"})
+    roots = {
+        urlparse(url).path.strip("/"): topic
+        for topic, url in CRAWL_CATEGORIES.items()
+        if topic != "Công nghệ"
+    }
+    roots.update(
+        {
+            "khoa-hoc": "Khoa học",
+            "so-hoa": "Công nghệ",
+            "cong-nghe": "Công nghệ",
+            "gia-dinh": "Đời sống",
+        }
+    )
 
     for link in reversed(links):
         parts = urlparse(link["href"]).path.strip("/").split("/")

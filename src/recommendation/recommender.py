@@ -1,171 +1,67 @@
 from datetime import datetime
 
-from src.embedding.hybrid_search import search_hybrid
-from src.summarization.summarizer import summarize_articles, save_summary
-from src.recommendation.user_profile import get_user_preferences
+from src.embedding.hybrid_search import MIN_RELEVANCE_SCORE, search_hybrid
+from src.news_topics import get_main_topic
 from src.recommendation.history import save_recommendation_history
-from src.news_topics import MAIN_TOPICS
+from src.recommendation.user_profile import get_user_preferences
 
 
-def recommend(
-    user_id,
-    start_date,
-    end_date,
-    top_k=10
-):
+def recommend(user_id, start_date, end_date, top_k=10):
+    """Tìm tin cho từng sở thích, bỏ trùng URL rồi xếp theo điểm cá nhân."""
     preferences = get_user_preferences(user_id)
-
     all_results = {}
 
     for preference in preferences:
-
         topic = preference["topic"]
         weight = preference["weight"]
-        is_main_topic = topic.strip().casefold() in {name.casefold() for name in MAIN_TOPICS}
-
-        results = search_hybrid(
-            topic,
-            start_date,
-            end_date,
-            top_k=top_k
-        )
+        is_main_topic = get_main_topic(topic) is not None
+        results = search_hybrid(topic, start_date, end_date, top_k=top_k)
 
         for article in results:
-            if not is_main_topic and article["hybrid_score"] < 0.5:
+            if not is_main_topic and article["hybrid_score"] < MIN_RELEVANCE_SCORE:
                 continue
 
             url = article["url"]
+            score = article["hybrid_score"] * weight
+            previous = all_results.get(url)
+            if previous is None:
+                all_results[url] = {**article, "personalized_score": score}
+            elif score > previous["personalized_score"]:
+                previous["personalized_score"] = score
 
-            personalized_score = (
-                article["hybrid_score"] * weight
-            )
-
-            if url not in all_results:
-                all_results[url] = {
-                    **article,
-                    "personalized_score": personalized_score
-                }
-
-            else:
-                if personalized_score > all_results[url]["personalized_score"]:
-                    all_results[url]["personalized_score"] = personalized_score
-
-    results = list(all_results.values())
-
-    results.sort(
-        key=lambda x: x["personalized_score"],
-        reverse=True
+    results = sorted(
+        all_results.values(), key=lambda item: item["personalized_score"], reverse=True
     )
-
     return results[:top_k]
 
 
 def main():
-
-    print("=" * 60)
-    print("NEWS RECOMMENDATION")
-    print("=" * 60)
+    # Phần chạy terminal có thêm bước tổng hợp; API chỉ dùng hàm recommend.
+    from src.summarization.summarizer import save_summary, summarize_articles
 
     user_id = int(input("User ID: "))
-
-    start_date_text = input(
-        "Từ ngày (dd/mm/yyyy): "
-    )
-
-    end_date_text = input(
-        "Đến ngày (dd/mm/yyyy): "
-    )
-
-    start_date = datetime.strptime(
-        start_date_text,
-        "%d/%m/%Y"
-    ).date()
-
-    end_date = datetime.strptime(
-        end_date_text,
-        "%d/%m/%Y"
-    ).date()
-
+    start_date = datetime.strptime(input("Từ ngày (dd/mm/yyyy): "), "%d/%m/%Y").date()
+    end_date = datetime.strptime(input("Đến ngày (dd/mm/yyyy): "), "%d/%m/%Y").date()
     if start_date > end_date:
-        print(
-            "Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc."
-        )
+        print("Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc.")
         return
 
-    results = recommend(
-        user_id,
-        start_date,
-        end_date,
-        top_k=10
-    )
-
-    save_recommendation_history(
-        user_id,
-        results
-    )
-
-    print("\n" + "=" * 60)
-    print("KẾT QUẢ GỢI Ý")
-    print("=" * 60)
-
+    results = recommend(user_id, start_date, end_date)
     if not results:
         print("Không tìm thấy bài báo phù hợp.")
         return
+    save_recommendation_history(user_id, results)
 
-    for i, article in enumerate(results, start=1):
+    for rank, article in enumerate(results, start=1):
+        print(f"{rank}. {article['title']}")
+        print(f"Ngày đăng: {article['published_at']}")
+        print(f"Điểm hybrid: {article['hybrid_score']:.4f}")
+        print(f"Điểm cá nhân: {article['personalized_score']:.4f}")
+        print(f"URL: {article['url']}\n")
 
-        print("-" * 60)
-
-        print(
-            f"{i}. {article['title']}"
-        )
-
-        print(
-            f"Ngày đăng: {article['published_at']}"
-        )
-
-        print(
-            f"Hybrid score: "
-            f"{article['hybrid_score']:.4f}"
-        )
-
-        print(
-            f"Personalized score: "
-            f"{article['personalized_score']:.4f}"
-        )
-
-        print(
-            f"URL: {article['url']}"
-        )
-
-    print("\n" + "=" * 60)
-    print("ĐANG TỔNG HỢP BẰNG GEMINI...")
-    print("=" * 60)
-
-    summary_topic = (
-        f"Tin tức phù hợp với người dùng {user_id}"
-    )
-
-    summary = summarize_articles(
-        summary_topic,
-        start_date,
-        end_date,
-        results
-    )
-
-    save_summary(
-        user_id,
-        summary_topic,
-        start_date,
-        end_date,
-        results,
-        summary
-    )
-
-    print("\n" + "=" * 60)
-    print("BẢN TỔNG HỢP")
-    print("=" * 60)
-
+    topic = f"Tin tức phù hợp với người dùng {user_id}"
+    summary = summarize_articles(topic, start_date, end_date, results)
+    save_summary(user_id, topic, start_date, end_date, results, summary)
     print(summary)
 
 

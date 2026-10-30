@@ -10,7 +10,6 @@ from src.api.schemas import LoginRequest, LoginResponse
 from src.db.db import engine
 from src.api.security import create_access_token, get_token_payload
 
-
 router = APIRouter(prefix="/auth", tags=["Auth"])
 password_hash = PasswordHash.recommended()
 
@@ -57,6 +56,7 @@ def register(request: RegisterRequest):
         email=request.email,
         message="Registration successful",
     )
+
 
 def find_user_by_email(email: str):
     with engine.connect() as connection:
@@ -112,14 +112,18 @@ def get_me(payload=Depends(get_token_payload)):
         )
 
     with engine.connect() as connection:
-        user = connection.execute(
-            text("""
+        user = (
+            connection.execute(
+                text("""
                 SELECT id, email
                 FROM users
                 WHERE id = :user_id
             """),
-            {"user_id": user_id},
-        ).mappings().first()
+                {"user_id": user_id},
+            )
+            .mappings()
+            .first()
+        )
 
     if user is None:
         raise HTTPException(

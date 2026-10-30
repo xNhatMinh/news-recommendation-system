@@ -53,9 +53,11 @@ class RegisterResponse(BaseModel):
     email: EmailStr
     message: str
 
+
 class LoginRequest(BaseModel):
     email: EmailStr = Field(max_length=254)
     password: str = Field(min_length=8)
+
 
 class LoginResponse(BaseModel):
     user_id: int
@@ -64,13 +66,37 @@ class LoginResponse(BaseModel):
     access_token: str
     token_type: str
 
+
 class PreferencesRequest(BaseModel):
     topics: list[str]
 
+
 class DeviceTokenRequest(BaseModel):
     fcm_token: str = Field(min_length=1, max_length=512)
+
 
 class SummaryRequest(BaseModel):
     topic: str = Field(min_length=1, max_length=200)
     start_date: date
     end_date: date
+
+
+class NotificationItem(BaseModel):
+    id: int
+    topic: str
+    title: str
+    description: str
+    url: str
+    image_url: str | None = None
+    is_read: bool
+    created_at: datetime
+
+
+class NotificationCounts(BaseModel):
+    total_count: int
+    unread_count: int
+
+
+class NotificationsResponse(NotificationCounts):
+    results: list[NotificationItem]
+    has_more: bool

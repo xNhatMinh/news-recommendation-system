@@ -77,7 +77,7 @@ def backfill_article_html(limit=None, url=None, workers=3):
     with ThreadPoolExecutor(max_workers=workers) as executor:
         # Chỉ đưa vào nhóm nhỏ để có thể dừng mà không chờ toàn bộ danh sách.
         for start in range(0, total, workers):
-            batch = articles[start:start + workers]
+            batch = articles[start : start + workers]
             for status, message in executor.map(update_article_html, batch):
                 counts[status] += 1
                 completed = sum(counts.values())
@@ -85,7 +85,7 @@ def backfill_article_html(limit=None, url=None, workers=3):
                     print(
                         f'[{completed}/{total}] Đã cập nhật: {counts["updated"]} '
                         f'| Bỏ qua: {counts["skipped"]} | Lỗi: {counts["failed"]} '
-                        f'| {message}',
+                        f"| {message}",
                         flush=True,
                     )
 

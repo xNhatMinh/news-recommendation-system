@@ -7,7 +7,6 @@ from sqlalchemy import text
 
 from src.db.db import engine
 
-
 BASE_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = BASE_DIR / "data"
 
@@ -23,10 +22,7 @@ def parse_published_at(date_text):
     2026-08-23 09:48:00
     """
 
-    match = re.search(
-        r"(\d{1,2})/(\d{1,2})/(\d{4}),\s*(\d{1,2}):(\d{2})",
-        date_text
-    )
+    match = re.search(r"(\d{1,2})/(\d{1,2})/(\d{4}),\s*(\d{1,2}):(\d{2})", date_text)
 
     if not match:
         return None
@@ -37,13 +33,7 @@ def parse_published_at(date_text):
     hour = int(match.group(4))
     minute = int(match.group(5))
 
-    return datetime(
-        year,
-        month,
-        day,
-        hour,
-        minute
-    )
+    return datetime(year, month, day, hour, minute)
 
 
 def import_articles():
@@ -85,19 +75,20 @@ def import_articles():
 
         for article in articles:
 
-            published_at = parse_published_at(
-                article.get("published_at", "")
-            )
+            published_at = parse_published_at(article.get("published_at", ""))
 
-            connection.execute(sql, {
-                "title": article.get("title"),
-                "description": article.get("description"),
-                "content": article.get("content"),
-                "category": article.get("category"),
-                "url": article.get("url"),
-                "image_url": article.get("image_url"),
-                "published_at": published_at
-            })
+            connection.execute(
+                sql,
+                {
+                    "title": article.get("title"),
+                    "description": article.get("description"),
+                    "content": article.get("content"),
+                    "category": article.get("category"),
+                    "url": article.get("url"),
+                    "image_url": article.get("image_url"),
+                    "published_at": published_at,
+                },
+            )
 
             success += 1
 

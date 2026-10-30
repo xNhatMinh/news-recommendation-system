@@ -6,7 +6,6 @@ from sqlalchemy import text
 
 from src.db.db import engine
 
-
 BASE_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = BASE_DIR / "data"
 
@@ -14,10 +13,7 @@ INPUT_FILE = DATA_DIR / "summaries.json"
 
 
 def parse_date(date_text):
-    return datetime.strptime(
-        date_text,
-        "%d/%m/%Y"
-    ).date()
+    return datetime.strptime(date_text, "%d/%m/%Y").date()
 
 
 def import_summaries():
@@ -48,18 +44,13 @@ def import_summaries():
                 """),
                 {
                     "topic": summary_data["topic"],
-                    "start_date": parse_date(
-                        summary_data["start_date"]
-                    ),
-                    "end_date": parse_date(
-                        summary_data["end_date"]
-                    ),
-                    "summary": summary_data["summary"]
-                }
+                    "start_date": parse_date(summary_data["start_date"]),
+                    "end_date": parse_date(summary_data["end_date"]),
+                    "summary": summary_data["summary"],
+                },
             )
 
             summary_id = result.lastrowid
-
 
             for article in summary_data["articles"]:
 
@@ -69,16 +60,11 @@ def import_summaries():
                         FROM articles
                         WHERE url = :url
                     """),
-                    {
-                        "url": article["url"]
-                    }
+                    {"url": article["url"]},
                 ).fetchone()
 
                 if result is None:
-                    print(
-                        f"Không tìm thấy article: "
-                        f"{article['title']}"
-                    )
+                    print(f"Không tìm thấy article: " f"{article['title']}")
                     skipped += 1
                     continue
 
@@ -100,8 +86,8 @@ def import_summaries():
                     {
                         "summary_id": summary_id,
                         "article_id": article_id,
-                        "hybrid_score": article["hybrid_score"]
-                    }
+                        "hybrid_score": article["hybrid_score"],
+                    },
                 )
 
             success += 1

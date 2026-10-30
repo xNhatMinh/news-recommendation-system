@@ -1,92 +1,73 @@
 from sqlalchemy import text
 
 from src.db.db import engine
-from src.embedding.hybrid_search import search_hybrid
+from src.embedding.hybrid_search import MIN_RELEVANCE_SCORE, search_hybrid
+from src.news_topics import get_main_topic
 from src.notifications.sender import send_notification_to_user
+from src.notifications.store import save_notification
 
 
 def get_notification_preferences():
-    sql = text("""
-        SELECT DISTINCT
-            p.user_id,
-            p.topic,
-            p.weight
-        FROM user_preferences p
-        INNER JOIN user_devices d
-            ON p.user_id = d.user_id
-    """)
-
+    # Lưu cả thông báo cho người dùng chưa đăng ký thiết bị FCM.
     with engine.connect() as connection:
-        preferences = connection.execute(sql).fetchall()
+        return connection.execute(text("""
+            SELECT user_id, topic, weight FROM user_preferences
+            ORDER BY user_id, id
+        """)).fetchall()
 
-    return preferences
 
-def find_matching_articles(topic, new_articles, min_score=0.5):
+def find_matching_articles(topic, new_articles, min_score=MIN_RELEVANCE_SCORE):
     if not new_articles:
         return []
+    main_topic = get_main_topic(topic)
+    if main_topic is not None:
+        return [
+            article
+            for article in new_articles
+            if (article.get("main_category") or article.get("category")) == main_topic
+        ]
 
-    article_urls = {
-        article["url"] for article in new_articles
-    }
-
-    dates = [
-        article["published_at"].date()
-        for article in new_articles
-    ]
-
+    article_urls = {article["url"] for article in new_articles}
+    dates = [article["published_at"].date() for article in new_articles]
     results = search_hybrid(
-        topic=topic,
-        start_date=min(dates),
-        end_date=max(dates),
+        topic,
+        min(dates),
+        max(dates),
         top_k=len(new_articles),
-        article_urls=article_urls
+        article_urls=article_urls,
     )
+    return [article for article in results if article["hybrid_score"] >= min_score]
 
-    return [
-        article
-        for article in results
-        if article["hybrid_score"] >= min_score
-    ]
 
 def notify_new_articles(new_articles):
     if not new_articles:
         return
 
-    preferences = get_notification_preferences()
     user_articles = {}
-
-    for preference in preferences:
-        matches = find_matching_articles(
-            topic=preference.topic,
-            new_articles=new_articles
-        )
-
-        if not matches:
-            continue
-
-        user_id = preference.user_id
-
-        if user_id not in user_articles:
-            user_articles[user_id] = set()
-
+    for preference in get_notification_preferences():
+        matches = find_matching_articles(preference.topic, new_articles)
+        selected = user_articles.setdefault(preference.user_id, {})
         for article in matches:
-            user_articles[user_id].add(article["url"])
+            url = article["url"]
+            if url not in selected or get_main_topic(preference.topic) is not None:
+                selected[url] = preference.topic
 
-    for user_id, article_urls in user_articles.items():
+    for user_id, matches in user_articles.items():
         try:
-            sent_count = send_notification_to_user(
+            created = sum(
+                save_notification(user_id, url, topic) for url, topic in matches.items()
+            )
+            if not created:
+                continue
+            # Lưu database trước; lỗi gửi push không làm mất hộp thông báo.
+            sent = send_notification_to_user(
                 user_id=user_id,
                 title="Tin mới",
-                body=(
-                    f"Có {len(article_urls)} bài báo mới "
-                    "phù hợp với sở thích của bạn."
-                )
+                body=f"Có {created} bài báo mới phù hợp với sở thích của bạn.",
+                data={"screen": "notifications"},
             )
-
             print(
-                f"Tài khoản {user_id}: "
-                f"Firebase chấp nhận gửi đến {sent_count} thiết bị"
+                f"User {user_id}: đã lưu {created} thông báo, gửi push đến {sent} thiết bị."
             )
-
-        except Exception as e:
-            print(f"Lỗi gửi thông báo cho tài khoản {user_id}: {e}")
+        except Exception as exc:
+            print(f"Lỗi thông báo cho user {user_id}: {exc}")

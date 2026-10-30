@@ -3,10 +3,7 @@ from sqlalchemy import text
 from src.db.db import engine
 
 
-def save_recommendation_history(
-    user_id,
-    articles
-):
+def save_recommendation_history(user_id, articles):
     sql = text("""
         INSERT INTO recommendation_history (
             user_id,
@@ -30,8 +27,8 @@ def save_recommendation_history(
                 {
                     "user_id": user_id,
                     "url": article["url"],
-                    "score": article["personalized_score"]
-                }
+                    "score": article["personalized_score"],
+                },
             )
 
 
@@ -54,13 +51,7 @@ def get_recommendation_history(user_id, limit=20):
     """)
 
     with engine.connect() as connection:
-        rows = connection.execute(
-            sql,
-            {
-                "user_id": user_id,
-                "limit": limit
-            }
-        ).fetchall()
+        rows = connection.execute(sql, {"user_id": user_id, "limit": limit}).fetchall()
 
     return [
         {
@@ -70,7 +61,7 @@ def get_recommendation_history(user_id, limit=20):
             "title": row.title,
             "url": row.url,
             "score": float(row.score),
-            "created_at": row.created_at
+            "created_at": row.created_at,
         }
         for row in rows
     ]

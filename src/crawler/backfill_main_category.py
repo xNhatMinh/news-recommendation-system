@@ -16,7 +16,9 @@ def ensure_main_category_column():
     columns = {column["name"] for column in inspect(engine).get_columns("articles")}
     if "main_category" not in columns:
         with engine.begin() as connection:
-            connection.execute(text("ALTER TABLE articles ADD COLUMN main_category VARCHAR(100) NULL"))
+            connection.execute(
+                text("ALTER TABLE articles ADD COLUMN main_category VARCHAR(100) NULL")
+            )
 
 
 def update_main_category(article):
@@ -26,9 +28,13 @@ def update_main_category(article):
         if topic is None:
             return "skipped", article["id"]
         with engine.begin() as connection:
-            result = connection.execute(text(
-                "UPDATE articles SET main_category = :topic WHERE id = :id AND " + MISSING
-            ), {"topic": topic, "id": article["id"]})
+            result = connection.execute(
+                text(
+                    "UPDATE articles SET main_category = :topic WHERE id = :id AND "
+                    + MISSING
+                ),
+                {"topic": topic, "id": article["id"]},
+            )
         return ("updated" if result.rowcount else "skipped"), article["id"]
     except Exception as exc:
         print(f'ID {article["id"]}: {type(exc).__name__}', flush=True)
@@ -38,20 +44,40 @@ def update_main_category(article):
 def backfill_main_category(workers=3):
     ensure_main_category_column()
     with engine.begin() as connection:
-        result = connection.execute(text(
-            "UPDATE articles SET main_category = category WHERE " + MISSING + " AND category IN :topics"
-        ).bindparams(bindparam("topics", expanding=True)), {"topics": MAIN_TOPICS})
+        result = connection.execute(
+            text(
+                "UPDATE articles SET main_category = category WHERE "
+                + MISSING
+                + " AND category IN :topics"
+            ).bindparams(bindparam("topics", expanding=True)),
+            {"topics": MAIN_TOPICS},
+        )
         copied = result.rowcount
-        rows = connection.execute(text("SELECT id, url FROM articles WHERE " + MISSING + " ORDER BY id DESC")).mappings().all()
+        rows = (
+            connection.execute(
+                text(
+                    "SELECT id, url FROM articles WHERE "
+                    + MISSING
+                    + " ORDER BY id DESC"
+                )
+            )
+            .mappings()
+            .all()
+        )
     counts = {"updated": copied, "skipped": 0, "failed": 0}
-    print(f'Đã nhận diện {copied} bài; cần đọc chuyên mục của {len(rows)} bài.', flush=True)
+    print(
+        f"Đã nhận diện {copied} bài; cần đọc chuyên mục của {len(rows)} bài.",
+        flush=True,
+    )
     with ThreadPoolExecutor(max_workers=workers) as executor:
         for start in range(0, len(rows), workers):
-            for status, article_id in executor.map(update_main_category, rows[start:start + workers]):
+            for status, article_id in executor.map(
+                update_main_category, rows[start : start + workers]
+            ):
                 counts[status] += 1
             done = min(start + workers, len(rows))
             if done % 30 == 0 or done == len(rows):
-                print(f'[{done}/{len(rows)}] {counts}', flush=True)
+                print(f"[{done}/{len(rows)}] {counts}", flush=True)
     return counts
 
 
@@ -61,7 +87,7 @@ def main():
     parser.add_argument("--workers", type=int, choices=range(1, 5), default=3)
     args = parser.parse_args()
     counts = backfill_main_category(args.workers)
-    print(f'Hoàn tất: {counts}', flush=True)
+    print(f"Hoàn tất: {counts}", flush=True)
     return 1 if counts["skipped"] or counts["failed"] else 0
 
 

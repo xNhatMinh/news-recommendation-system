@@ -6,11 +6,7 @@ from src.api.schemas import LatestArticlesResponse
 from src.db.db import engine
 from src.news_topics import MAIN_TOPICS
 
-
-router = APIRouter(
-    prefix="/articles",
-    tags=["Articles"]
-)
+router = APIRouter(prefix="/articles", tags=["Articles"])
 
 
 @router.get("/latest", response_model=LatestArticlesResponse)
@@ -18,7 +14,7 @@ def get_latest_articles(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     category: str | None = Query(None, min_length=1, max_length=100),
-    user=Depends(get_me)
+    user=Depends(get_me),
 ):
     sql = """
         SELECT title,
@@ -42,18 +38,16 @@ def get_latest_articles(
     return {
         "results": [dict(row) for row in rows[:limit]],
         "categories": MAIN_TOPICS,
-        "has_more": len(rows) > limit
+        "has_more": len(rows) > limit,
     }
 
 
 @router.get("/detail")
-def get_article_detail(
-    url: str,
-    user=Depends(get_me)
-):
+def get_article_detail(url: str, user=Depends(get_me)):
     with engine.connect() as connection:
-        article = connection.execute(
-            text("""
+        article = (
+            connection.execute(
+                text("""
                 SELECT
                     title,
                     description,
@@ -67,14 +61,14 @@ def get_article_detail(
                 WHERE url = :url
                 LIMIT 1
             """),
-            {"url": url}
-        ).mappings().first()
+                {"url": url},
+            )
+            .mappings()
+            .first()
+        )
 
     if article is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Không tìm thấy bài báo"
-        )
+        raise HTTPException(status_code=404, detail="Không tìm thấy bài báo")
 
     result = dict(article)
     result["description"] = result["description"] or ""

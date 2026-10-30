@@ -7,11 +7,7 @@ from src.recommendation.user_profile import (
     save_user_preferences,
 )
 
-
-router = APIRouter(
-    prefix="/preferences",
-    tags=["Preferences"]
-)
+router = APIRouter(prefix="/preferences", tags=["Preferences"])
 
 
 @router.get("")

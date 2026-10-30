@@ -13,18 +13,10 @@ def get_user_preferences(user_id):
     """)
 
     with engine.connect() as connection:
-        rows = connection.execute(
-            sql,
-            {"user_id": user_id}
-        ).fetchall()
+        rows = connection.execute(sql, {"user_id": user_id}).fetchall()
 
-    return [
-        {
-            "topic": row.topic,
-            "weight": float(row.weight)
-        }
-        for row in rows
-    ]
+    return [{"topic": row.topic, "weight": float(row.weight)} for row in rows]
+
 
 def save_user_preferences(user_id, topics):
     with engine.begin() as connection:

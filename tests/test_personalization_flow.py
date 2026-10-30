@@ -1,4 +1,5 @@
 import contextlib
+import io
 import json
 import os
 import sqlite3
@@ -26,6 +27,7 @@ with patch.dict(os.environ, {
     from src.embedding import hybrid_search
     from src.recommendation import user_profile, history
     from src.api.routes import preferences, recommendation, summary
+    from src.summarization import summarizer
 if previous_model_module is None:
     sys.modules.pop('sentence_transformers', None)
 else:
@@ -149,6 +151,35 @@ class PersonalizationFlowTests(unittest.TestCase):
         self.assertEqual(self.client.put('/preferences', json={'topics': ['Messi']}).status_code, 401)
         self.assertEqual(self.client.post('/recommend', json=self.window).status_code, 401)
         self.assertEqual(self.client.post('/summary', json={**self.window, 'topic': 'Xe'}).status_code, 401)
+
+
+    def test_summary_prompt_keeps_all_sources_and_calls_gemini_once(self):
+        articles = [
+            {'title': 'First title', 'description': 'First description', 'content': 'First body', 'published_at': date(2026, 10, 26)},
+            {'title': 'Second title', 'description': 'Second description', 'content': 'Second body', 'published_at': date(2026, 10, 27)},
+        ]
+        response = types.SimpleNamespace(text='Summary result')
+        with patch.object(summarizer.client.models, 'generate_content', return_value=response) as generate:
+            result = summarizer.summarize_articles('Du lịch', date(2026, 10, 1), date(2026, 10, 27), articles)
+        self.assertEqual(result, 'Summary result')
+        generate.assert_called_once()
+        prompt = generate.call_args.kwargs['contents']
+        self.assertEqual(prompt.count('First body'), 1)
+        self.assertEqual(prompt.count('Second body'), 1)
+        self.assertIn('01/10/2026 - 27/10/2026', prompt)
+
+    def test_empty_summary_sources_do_not_call_gemini(self):
+        with patch.object(summarizer.client.models, 'generate_content') as generate:
+            with self.assertRaises(ValueError):
+                summarizer.summarize_articles('Du lịch', date(2026, 10, 1), date(2026, 10, 27), [])
+            generate.assert_not_called()
+
+    def test_summary_cli_passes_user_id_when_saving(self):
+        articles = [{'title': 'Test article'}]
+        answers = ['123', 'Du lịch', '01/10/2026', '27/10/2026']
+        with patch('builtins.input', side_effect=answers), patch.object(summarizer, 'search_hybrid', return_value=articles), patch.object(summarizer, 'summarize_articles', return_value='Summary'), patch.object(summarizer, 'save_summary') as save, contextlib.redirect_stdout(io.StringIO()):
+            summarizer.main()
+        save.assert_called_once_with(123, 'Du lịch', date(2026, 10, 1), date(2026, 10, 27), articles, 'Summary')
 
 
 if __name__ == '__main__':

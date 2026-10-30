@@ -5,7 +5,6 @@ from sqlalchemy import text
 
 from src.db.db import engine
 
-
 BASE_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = BASE_DIR / "data"
 
@@ -40,7 +39,7 @@ def import_embeddings():
                     FROM articles
                     WHERE url = :url
                 """),
-                {"url": url}
+                {"url": url},
             ).fetchone()
 
             if result is None:
@@ -70,8 +69,8 @@ def import_embeddings():
                 {
                     "article_id": article_id,
                     "embedding": json.dumps(vector),
-                    "model_name": MODEL_NAME
-                }
+                    "model_name": MODEL_NAME,
+                },
             )
 
             success += 1

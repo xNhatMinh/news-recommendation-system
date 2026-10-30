@@ -7,15 +7,18 @@ from sqlalchemy import text
 from src.crawler.vnexpress_crawler import get_cover_image, get_soup
 from src.db.db import engine
 
-
 MISSING = "(image_url IS NULL OR TRIM(image_url) = '')"
 
 
 def backfill_cover_images():
     with engine.connect() as connection:
-        articles = connection.execute(text(
-            "SELECT id, url, content_html FROM articles WHERE " + MISSING
-        )).mappings().all()
+        articles = (
+            connection.execute(
+                text("SELECT id, url, content_html FROM articles WHERE " + MISSING)
+            )
+            .mappings()
+            .all()
+        )
 
     counts = {"updated": 0, "no_image": 0, "failed": 0}
     for article in articles:
@@ -30,9 +33,13 @@ def backfill_cover_images():
                 continue
 
             with engine.begin() as connection:
-                result = connection.execute(text(
-                    "UPDATE articles SET image_url = :image_url WHERE id = :id AND " + MISSING
-                ), {"image_url": image_url, "id": article["id"]})
+                result = connection.execute(
+                    text(
+                        "UPDATE articles SET image_url = :image_url WHERE id = :id AND "
+                        + MISSING
+                    ),
+                    {"image_url": image_url, "id": article["id"]},
+                )
             counts["updated"] += result.rowcount
         except Exception as exc:
             counts["failed"] += 1

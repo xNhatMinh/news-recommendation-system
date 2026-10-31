@@ -8,13 +8,16 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
 from src.news_topics import MAIN_TOPICS
 
-with patch.dict(os.environ, {
-    "MYSQL_USER": "test",
-    "MYSQL_PASSWORD": "test",
-    "MYSQL_HOST": "localhost",
-    "MYSQL_PORT": "3306",
-    "MYSQL_DATABASE": "test",
-}):
+with patch.dict(
+    os.environ,
+    {
+        "MYSQL_USER": "test",
+        "MYSQL_PASSWORD": "test",
+        "MYSQL_HOST": "localhost",
+        "MYSQL_PORT": "3306",
+        "MYSQL_DATABASE": "test",
+    },
+):
     from src.api.routes import articles
 
 
@@ -48,26 +51,35 @@ class LatestArticlesTests(unittest.TestCase):
         self.app = FastAPI()
         self.app.include_router(articles.router)
         # No user_preferences table: a new reader must still receive latest news.
-        self.app.dependency_overrides[articles.get_me] = lambda: {"user_id": 123}
         self.client = TestClient(self.app)
         self.addCleanup(self.client.close)
 
-    def add_article(self, article_id, date="2026-10-26 10:00:00", category="Thể thao", description=None, main_category=None):
+    def add_article(
+        self,
+        article_id,
+        date="2026-10-26 10:00:00",
+        category="Thể thao",
+        description=None,
+        main_category=None,
+    ):
         with self.engine.begin() as connection:
-            connection.execute(text("""
+            connection.execute(
+                text("""
                 INSERT INTO articles
                     (id, title, description, content, content_html, category, main_category, url, published_at)
                 VALUES
                     (:id, :title, :description, 'Full text', '<p>Full HTML</p>', :category, :main_category, :url, :date)
-            """), {
-                "id": article_id,
-                "title": f"Article {article_id}",
-                "description": description,
-                "category": category,
-                "main_category": main_category,
-                "url": f"https://news.example/article-{article_id}.html",
-                "date": date,
-            })
+            """),
+                {
+                    "id": article_id,
+                    "title": f"Article {article_id}",
+                    "description": description,
+                    "category": category,
+                    "main_category": main_category,
+                    "url": f"https://news.example/article-{article_id}.html",
+                    "date": date,
+                },
+            )
 
     def get_page(self, **params):
         response = self.client.get("/articles/latest", params=params)
@@ -77,9 +89,24 @@ class LatestArticlesTests(unittest.TestCase):
     def titles(self, page):
         return [article["title"] for article in page["results"]]
 
-    def test_requires_login(self):
-        self.app.dependency_overrides.clear()
-        self.assertEqual(self.client.get("/articles/latest").status_code, 401)
+    def test_guest_can_read_latest_and_detail_even_with_expired_token(self):
+        self.add_article(1)
+        for headers in ({}, {"Authorization": "Bearer expired-token"}):
+            response = self.client.get("/articles/latest", headers=headers)
+            self.assertEqual(response.status_code, 200)
+            detail = self.client.get(
+                "/articles/detail",
+                params={"url": response.json()["results"][0]["url"]},
+                headers=headers,
+            )
+            self.assertEqual(detail.status_code, 200)
+            self.assertEqual(detail.json()["content_html"], "<p>Full HTML</p>")
+
+    def test_missing_article_returns_404_for_guest(self):
+        response = self.client.get(
+            "/articles/detail", params={"url": "https://news.example/missing"}
+        )
+        self.assertEqual(response.status_code, 404)
 
     def test_new_user_gets_all_topics_in_date_order_with_stable_ties(self):
         self.add_article(1, "2026-10-25 10:00:00", "Thể thao")
@@ -129,7 +156,10 @@ class LatestArticlesTests(unittest.TestCase):
         self.assertFalse(second["has_more"])
 
     def test_empty_database_keeps_main_topic_choices(self):
-        self.assertEqual(self.get_page(), {"results": [], "categories": MAIN_TOPICS, "has_more": False})
+        self.assertEqual(
+            self.get_page(),
+            {"results": [], "categories": MAIN_TOPICS, "has_more": False},
+        )
 
     def test_main_topic_includes_child_sections_in_date_order(self):
         self.add_article(1, category="AI", main_category="Công nghệ")
@@ -160,7 +190,9 @@ class LatestArticlesTests(unittest.TestCase):
     def test_rejects_invalid_pagination_and_empty_category(self):
         for params in ({"limit": 0}, {"limit": 101}, {"offset": -1}, {"category": ""}):
             with self.subTest(params=params):
-                self.assertEqual(self.client.get("/articles/latest", params=params).status_code, 422)
+                self.assertEqual(
+                    self.client.get("/articles/latest", params=params).status_code, 422
+                )
 
     def test_list_normalizes_null_description_and_does_not_send_full_article(self):
         self.add_article(1)
@@ -168,7 +200,10 @@ class LatestArticlesTests(unittest.TestCase):
         self.assertEqual(article["description"], "")
         self.assertIsNone(article["image_url"])
         self.assertEqual(article["published_at"], "2026-10-26T10:00:00")
-        self.assertEqual(set(article), {"title", "description", "category", "url", "image_url", "published_at"})
+        self.assertEqual(
+            set(article),
+            {"title", "description", "category", "url", "image_url", "published_at"},
+        )
 
 
 if __name__ == "__main__":

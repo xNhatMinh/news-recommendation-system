@@ -1,7 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import text
 
-from src.api.routes.auth import get_me
 from src.api.schemas import LatestArticlesResponse
 from src.db.db import engine
 from src.news_topics import MAIN_TOPICS
@@ -14,7 +13,6 @@ def get_latest_articles(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     category: str | None = Query(None, min_length=1, max_length=100),
-    user=Depends(get_me),
 ):
     sql = """
         SELECT title,
@@ -43,7 +41,7 @@ def get_latest_articles(
 
 
 @router.get("/detail")
-def get_article_detail(url: str, user=Depends(get_me)):
+def get_article_detail(url: str):
     with engine.connect() as connection:
         article = (
             connection.execute(

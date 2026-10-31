@@ -1,102 +1,139 @@
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, status, Depends
-from pwdlib import PasswordHash
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-from src.api.schemas import RegisterRequest, RegisterResponse
-from src.api.schemas import LoginRequest, LoginResponse
-from src.db.db import engine
+from src.api.schemas import (
+    RegisterRequest,
+    RegisterResponse,
+    LoginRequest,
+    LoginResponse,
+    GoogleLoginRequest,
+    PasswordResetRequest,
+    PasswordResetResponse,
+)
 from src.api.security import create_access_token, get_token_payload
+from src.auth import firebase_service
+from src.db.db import engine
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
-password_hash = PasswordHash.recommended()
 
 
-@router.post(
-    "/register",
-    response_model=RegisterResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-def register(request: RegisterRequest):
-    # Keep the required username independent of the email's length and format.
-    username = f"user_{uuid4().hex}"
-    hashed_password = password_hash.hash(request.password)
-
-    try:
-        with engine.begin() as connection:
-            result = connection.execute(
+def find_user_by_email(email):
+    with engine.connect() as connection:
+        return (
+            connection.execute(
                 text("""
-                    INSERT INTO users (username, email, password_hash)
-                    VALUES (:username, :email, :password_hash)
-                """),
-                {
-                    "username": username,
-                    "email": request.email,
-                    "password_hash": hashed_password,
-                },
+            SELECT id, email FROM users WHERE LOWER(email) = LOWER(:email)
+        """),
+                {"email": email},
             )
-            user_id = result.lastrowid
-    except IntegrityError as exc:
-        # Handle the database constraint, including simultaneous registrations.
-        if (
-            exc.orig.args
-            and exc.orig.args[0] == 1062
-            and "uq_users_email" in str(exc.orig)
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Email already registered",
-            ) from None
-        raise
+            .mappings()
+            .first()
+        )
 
-    return RegisterResponse(
-        user_id=user_id,
-        email=request.email,
-        message="Registration successful",
+
+def linked_user(connection, uid):
+    return (
+        connection.execute(
+            text("""
+        SELECT u.id AS user_id, u.email
+        FROM users u JOIN user_firebase_accounts f ON f.user_id = u.id
+        WHERE f.firebase_uid = :uid
+    """),
+            {"uid": uid},
+        )
+        .mappings()
+        .first()
     )
 
 
-def find_user_by_email(email: str):
-    with engine.connect() as connection:
-        result = connection.execute(
-            text("""
-                SELECT id, email, password_hash
-                FROM users
-                WHERE email = :email
+def sync_firebase_user(identity):
+    """Tìm hoặc tạo hồ sơ MySQL theo UID đã được Firebase xác minh."""
+    uid, email = identity["uid"], identity["email"]
+    try:
+        with engine.begin() as connection:
+            user = linked_user(connection, uid)
+            if user is not None:
+                return dict(user)
+            existing = connection.execute(
+                text("SELECT id FROM users WHERE LOWER(email) = LOWER(:email)"),
+                {"email": email},
+            ).first()
+            if existing is not None:
+                raise HTTPException(409, "Email already registered to another account")
+            result = connection.execute(
+                text("""
+                INSERT INTO users (username, email)
+                VALUES (:username, :email)
+                """),
+                {"username": f"user_{uuid4().hex}", "email": email},
+            )
+            user_id = result.lastrowid
+            connection.execute(
+                text("""
+                INSERT INTO user_firebase_accounts (user_id, firebase_uid)
+                VALUES (:user_id, :uid)
             """),
-            {"email": email},
-        )
+                {"user_id": user_id, "uid": uid},
+            )
+            return {"user_id": user_id, "email": email}
+    except IntegrityError as exc:
+        duplicate = (
+            exc.orig.args and exc.orig.args[0] == 1062
+        ) or "UNIQUE constraint failed" in str(exc.orig)
+        if not duplicate:
+            raise
+        with engine.connect() as connection:
+            user = linked_user(connection, uid)
+        if user is not None:
+            return dict(user)
+        raise HTTPException(409, "Email already registered") from None
 
-        return result.mappings().first()
+
+@router.post(
+    "/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED
+)
+def register(request: RegisterRequest):
+    if find_user_by_email(request.email) is not None:
+        raise HTTPException(409, "Email already registered")
+    identity = firebase_service.authenticate("signUp", request.email, request.password)
+    user = sync_firebase_user(identity)
+    return RegisterResponse(**user, message="Registration successful")
 
 
 @router.post("/login", response_model=LoginResponse)
 def login(request: LoginRequest):
-    user = find_user_by_email(request.email)
-
-    if (
-        user is None
-        or not user["password_hash"]
-        or not password_hash.verify(
-            request.password,
-            user["password_hash"],
-        )
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Email or password is incorrect",
-        )
-
-    token = create_access_token(user["id"])
-
+    identity = firebase_service.authenticate(
+        "signInWithPassword", request.email, request.password
+    )
+    user = sync_firebase_user(identity)
     return LoginResponse(
-        user_id=user["id"],
-        email=user["email"],
+        **user,
         message="Login successful",
-        access_token=token,
+        access_token=create_access_token(user["user_id"]),
         token_type="bearer",
+    )
+
+
+@router.post("/google", response_model=LoginResponse)
+def google_login(request: GoogleLoginRequest):
+    identity = firebase_service.authenticate_google(request.id_token)
+    user = sync_firebase_user(identity)
+    return LoginResponse(
+        **user,
+        message="Login successful",
+        access_token=create_access_token(user["user_id"]),
+        token_type="bearer",
+    )
+
+
+@router.post("/forgot-password", response_model=PasswordResetResponse)
+def forgot_password(request: PasswordResetRequest):
+    firebase_service.send_password_reset_email(request.email)
+    return PasswordResetResponse(
+        message="If the email is registered, a password reset link will be sent."
     )
 
 
@@ -115,9 +152,10 @@ def get_me(payload=Depends(get_token_payload)):
         user = (
             connection.execute(
                 text("""
-                SELECT id, email
-                FROM users
-                WHERE id = :user_id
+                SELECT u.id, u.email
+                FROM users u
+                JOIN user_firebase_accounts f ON f.user_id = u.id
+                WHERE u.id = :user_id
             """),
                 {"user_id": user_id},
             )

@@ -63,7 +63,6 @@ class ArticleSearchTests(unittest.TestCase):
             self.addCleanup(item.stop)
         self.app = FastAPI()
         self.app.include_router(search.router)
-        self.app.dependency_overrides[search.get_me] = lambda: {"user_id": 1}
         self.client = TestClient(self.app)
         self.addCleanup(self.client.close)
 
@@ -107,11 +106,14 @@ class ArticleSearchTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
 
-    def test_requires_login_before_searching(self):
-        self.app.dependency_overrides.clear()
-        response = self.client.get("/articles/search", params={"q": "giá vàng"})
-        self.assertEqual(response.status_code, 401)
-        hybrid_search.model.encode.assert_not_called()
+    def test_guest_can_search_even_with_expired_token(self):
+        self.add_article(1, title="Giá vàng hôm nay")
+        for headers in ({}, {"Authorization": "Bearer expired-token"}):
+            response = self.client.get(
+                "/articles/search", params={"q": "giá vàng"}, headers=headers
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(len(response.json()["results"]), 1)
 
     def test_keyword_and_semantic_matches_are_ranked_and_irrelevant_results_removed(
         self,

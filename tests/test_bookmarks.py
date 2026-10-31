@@ -102,6 +102,14 @@ class BookmarkTests(unittest.TestCase):
                 self.assertEqual(
                     getattr(self.client, method)(path, **kwargs).status_code, 401
                 )
+                self.assertEqual(
+                    getattr(self.client, method)(
+                        path,
+                        headers={"Authorization": "Bearer expired-token"},
+                        **kwargs,
+                    ).status_code,
+                    401,
+                )
 
     def test_empty_list_and_status(self):
         url = self.add_article(1)

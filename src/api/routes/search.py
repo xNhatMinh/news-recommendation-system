@@ -1,8 +1,7 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 
-from src.api.routes.auth import get_me
 from src.api.schemas import SearchArticlesResponse
 from src.embedding.hybrid_search import MIN_RELEVANCE_SCORE, search_hybrid
 from src.news_topics import get_main_topic
@@ -15,7 +14,6 @@ def search_articles(
     q: str = Query(..., min_length=1, max_length=200),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    user=Depends(get_me),
 ):
     query = " ".join(q.split())
     if not query:

@@ -118,3 +118,15 @@ class BookmarkStatus(BaseModel):
 class SavedArticlesResponse(BaseModel):
     results: list[ArticleListItem]
     has_more: bool
+
+
+class GoogleLoginRequest(BaseModel):
+    id_token: str = Field(min_length=1, max_length=10000)
+
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr = Field(max_length=254)
+
+
+class PasswordResetResponse(BaseModel):
+    message: str

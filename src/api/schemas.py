@@ -37,6 +37,11 @@ class ArticleListItem(BaseModel):
     published_at: datetime | None
 
 
+class SearchArticlesResponse(BaseModel):
+    results: list[ArticleListItem]
+    has_more: bool
+
+
 class LatestArticlesResponse(BaseModel):
     results: list[ArticleListItem]
     categories: list[str]
@@ -99,4 +104,17 @@ class NotificationCounts(BaseModel):
 
 class NotificationsResponse(NotificationCounts):
     results: list[NotificationItem]
+    has_more: bool
+
+
+class BookmarkRequest(BaseModel):
+    url: str = Field(min_length=1, max_length=2048)
+
+
+class BookmarkStatus(BaseModel):
+    is_saved: bool
+
+
+class SavedArticlesResponse(BaseModel):
+    results: list[ArticleListItem]
     has_more: bool

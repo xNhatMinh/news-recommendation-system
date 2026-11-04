@@ -6,13 +6,19 @@ from src.db.db import engine
 
 
 def send_notification(fcm_token: str, title: str, body: str, data=None):
+    payload = data or {}
     message = messaging.Message(
         token=fcm_token,
-        data=data or {},
+        data=payload,
         notification=messaging.Notification(title=title, body=body),
         android=messaging.AndroidConfig(
             priority="high",
-            notification=messaging.AndroidNotification(channel_id="news_alerts"),
+            notification=messaging.AndroidNotification(
+                channel_id="news_alerts",
+                icon="ic_stat_newsora",
+                color="#6650A4",
+                tag=payload.get("notification_tag"),
+            ),
         ),
     )
 

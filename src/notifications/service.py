@@ -53,21 +53,30 @@ def notify_new_articles(new_articles):
                 selected[url] = preference.topic
 
     for user_id, matches in user_articles.items():
-        try:
-            created = sum(
-                save_notification(user_id, url, topic) for url, topic in matches.items()
-            )
-            if not created:
-                continue
-            # Lưu database trước; lỗi gửi push không làm mất hộp thông báo.
-            sent = send_notification_to_user(
-                user_id=user_id,
-                title="Tin mới",
-                body=f"Có {created} bài báo mới phù hợp với sở thích của bạn.",
-                data={"screen": "notifications"},
-            )
-            print(
-                f"User {user_id}: đã lưu {created} thông báo, gửi push đến {sent} thiết bị."
-            )
-        except Exception as exc:
-            print(f"Lỗi thông báo cho user {user_id}: {exc}")
+        created = sent = 0
+        for url, topic in matches.items():
+            try:
+                # Lưu từng bài trước; lỗi push không làm mất hộp thông báo.
+                if not save_notification(user_id, url, topic):
+                    continue
+                created += 1
+                with engine.connect() as connection:
+                    article = connection.execute(
+                        text("SELECT id, title, description FROM articles WHERE url = :url"),
+                        {"url": url},
+                    ).mappings().one()
+                sent += send_notification_to_user(
+                    user_id=user_id,
+                    title=article["title"],
+                    body=(article["description"] or "").strip() or f"Tin mới về {topic}.",
+                    data={
+                        "screen": "notifications",
+                        "article_url": url,
+                        "topic": topic,
+                        "notification_tag": f"newsora_article_{article['id']}",
+                    },
+                )
+            except Exception as exc:
+                print(f"Lỗi thông báo cho user {user_id}, bài {url}: {exc}")
+        if created:
+            print(f"User {user_id}: đã lưu {created} thông báo, gửi {sent} thông báo đẩy theo từng bài.")

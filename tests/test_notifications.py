@@ -19,12 +19,16 @@ model_stub.SentenceTransformer = lambda *args, **kwargs: types.SimpleNamespace(
 )
 sender_stub = types.ModuleType("src.notifications.sender")
 sender_stub.send_notification_to_user = Mock(return_value=0)
+hybrid_stub = types.ModuleType("src.embedding.hybrid_search")
+hybrid_stub.MIN_RELEVANCE_SCORE = 0.5
+hybrid_stub.search_hybrid = Mock(side_effect=AssertionError("Unexpected live embedding search in notification tests"))
 originals = {
     key: sys.modules.get(key)
-    for key in ("sentence_transformers", "src.notifications.sender")
+    for key in ("sentence_transformers", "src.notifications.sender", "src.embedding.hybrid_search")
 }
 sys.modules["sentence_transformers"] = model_stub
 sys.modules["src.notifications.sender"] = sender_stub
+sys.modules["src.embedding.hybrid_search"] = hybrid_stub
 with patch.dict(
     os.environ,
     {
@@ -264,10 +268,43 @@ class NotificationTests(unittest.TestCase):
             service.notify_new_articles([article])
             service.notify_new_articles([article])
             push.assert_called_once()
-            self.assertEqual(push.call_args.kwargs["data"], {"screen": "notifications"})
+            self.assertEqual(push.call_args.kwargs["title"], "Article 1")
+            self.assertEqual(push.call_args.kwargs["data"], {
+                "screen": "notifications",
+                "article_url": "https://news.example/1",
+                "topic": "Thể thao",
+                "notification_tag": "newsora_article_1",
+            })
         data = self.get()
         self.assertEqual(data["total_count"], 1)
         self.assertEqual(data["results"][0]["topic"], "Thể thao")
+
+    def test_each_article_gets_a_separate_push_with_its_title_and_tag(self):
+        articles = []
+        for article_id in range(1, 6):
+            self.add_article(article_id, description=f"Description {article_id}")
+            articles.append({"url": f"https://news.example/{article_id}", "main_category": "Thể thao"})
+        with self.engine.begin() as c:
+            c.execute(text("INSERT INTO user_preferences VALUES (1,1,'Thể thao',1.0)"))
+        with patch.object(service, "send_notification_to_user", return_value=1) as push, contextlib.redirect_stdout(io.StringIO()):
+            service.notify_new_articles(articles)
+            service.notify_new_articles(articles)
+        self.assertEqual(push.call_count, 5)
+        self.assertEqual({call.kwargs["title"] for call in push.call_args_list}, {f"Article {i}" for i in range(1, 6)})
+        self.assertEqual({call.kwargs["body"] for call in push.call_args_list}, {f"Description {i}" for i in range(1, 6)})
+        self.assertEqual(len({call.kwargs["data"]["notification_tag"] for call in push.call_args_list}), 5)
+        self.assertEqual(self.get()["total_count"], 5)
+
+    def test_one_failed_article_push_does_not_skip_later_articles(self):
+        for article_id in (1, 2):
+            self.add_article(article_id)
+        with self.engine.begin() as c:
+            c.execute(text("INSERT INTO user_preferences VALUES (1,1,'Thể thao',1.0)"))
+        articles = [{"url": f"https://news.example/{i}", "main_category": "Thể thao"} for i in (1, 2)]
+        with patch.object(service, "send_notification_to_user", side_effect=[RuntimeError("offline"), 1]) as push, contextlib.redirect_stdout(io.StringIO()):
+            service.notify_new_articles(articles)
+        self.assertEqual(push.call_count, 2)
+        self.assertEqual(self.get()["total_count"], 2)
 
     def test_failed_push_does_not_lose_persisted_notification(self):
         self.add_article(1)

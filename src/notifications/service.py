@@ -11,7 +11,7 @@ def get_notification_preferences():
     # Lưu cả thông báo cho người dùng chưa đăng ký thiết bị FCM.
     with engine.connect() as connection:
         return connection.execute(text("""
-            SELECT user_id, topic, weight FROM user_preferences
+            SELECT user_id, topic FROM user_preferences
             ORDER BY user_id, id
         """)).fetchall()
 

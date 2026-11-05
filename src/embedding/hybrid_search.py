@@ -22,7 +22,7 @@ def search_hybrid(topic, start_date, end_date, top_k=10, article_urls=None):
     topic_vector = model.encode([topic])
 
     sql = """
-        SELECT a.id, a.title, a.description, a.content,
+        SELECT a.title, a.description, a.content,
                COALESCE(NULLIF(a.main_category, ''), a.category) AS category,
                a.url, a.image_url, a.published_at, e.embedding
         FROM articles a

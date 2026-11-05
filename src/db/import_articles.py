@@ -14,13 +14,7 @@ INPUT_FILE = DATA_DIR / "articles.json"
 
 
 def parse_published_at(date_text):
-    """
-    Chuyển:
-    Chủ nhật, 23/8/2026, 09:48 (GMT+7)
-
-    thành:
-    2026-08-23 09:48:00
-    """
+    """Đọc ngày giờ dạng dd/mm/yyyy, HH:MM trong chuỗi ngày đăng VnExpress."""
 
     match = re.search(r"(\d{1,2})/(\d{1,2})/(\d{4}),\s*(\d{1,2}):(\d{2})", date_text)
 

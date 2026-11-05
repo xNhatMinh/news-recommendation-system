@@ -10,6 +10,7 @@ from urllib.parse import urljoin, urlparse
 from sqlalchemy import text
 
 from src.db.db import engine
+from src.db.article_store import article_exists, insert_article
 from src.news_topics import CRAWL_CATEGORIES, get_main_category
 
 HEADERS = {
@@ -55,6 +56,7 @@ def get_latest_article_date():
     sql = text("""
         SELECT MAX(published_at)
         FROM articles
+        WHERE url LIKE 'https://vnexpress.net/%'
     """)
 
     with engine.connect() as connection:
@@ -239,61 +241,6 @@ def get_article(url):
     }
 
 
-def article_exists(connection, url):
-    sql = text("""
-        SELECT id
-        FROM articles
-        WHERE url = :url
-        LIMIT 1
-    """)
-
-    result = connection.execute(sql, {"url": url}).fetchone()
-
-    return result is not None
-
-
-def insert_article(connection, article):
-    sql = text("""
-        INSERT INTO articles (
-            title,
-            description,
-            content,
-            content_html,
-            category,
-            main_category,
-            url,
-            image_url,
-            published_at
-        )
-        VALUES (
-            :title,
-            :description,
-            :content,
-            :content_html,
-            :category,
-            :main_category,
-            :url,
-            :image_url,
-            :published_at
-        )
-    """)
-
-    connection.execute(
-        sql,
-        {
-            "title": article["title"],
-            "description": article["description"],
-            "content": article["content"],
-            "content_html": article.get("content_html", ""),
-            "category": article["category"],
-            "main_category": article.get("main_category"),
-            "url": article["url"],
-            "image_url": article.get("image_url"),
-            "published_at": article["published_at"],
-        },
-    )
-
-
 def main(categories=None, days=None, max_pages=100):
     """Thu thập URL, đọc nội dung rồi lưu những bài chưa có trong MySQL."""
     if days is not None and days < 1:
@@ -331,6 +278,9 @@ def main(categories=None, days=None, max_pages=100):
     for index, url in enumerate(all_urls, start=1):
         print(f"Đang đọc bài {index}/{len(all_urls)}")
         try:
+            with engine.connect() as connection:
+                if article_exists(connection, url):
+                    continue
             article = get_article(url)
             published_at = article["published_at"]
             if not published_at or not latest_date < published_at <= current_date:

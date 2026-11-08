@@ -11,6 +11,7 @@ from src.api.routes.search import router as search_router
 from src.api.routes.bookmarks import router as bookmarks_router
 from src.api.routes.notifications import router as notifications_router
 from src.api.routes.automation import router as automation_router
+from src.api.routes.terms import router as terms_router
 
 app = FastAPI(
     title="News Recommendation API",
@@ -30,6 +31,8 @@ app.include_router(search_router)
 app.include_router(bookmarks_router)
 app.include_router(notifications_router)
 app.include_router(automation_router)
+
+app.include_router(terms_router)
 
 
 @app.get("/health")

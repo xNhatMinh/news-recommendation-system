@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from src.api.routes.auth import router as auth_router
@@ -12,8 +14,17 @@ from src.api.routes.bookmarks import router as bookmarks_router
 from src.api.routes.notifications import router as notifications_router
 from src.api.routes.automation import router as automation_router
 from src.api.routes.terms import router as terms_router
+from src.api.routes.admin import router as admin_router
+from src.db.admin_store import init_admin_tables
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_admin_tables()
+    yield
+
 
 app = FastAPI(
+    lifespan=lifespan,
     title="News Recommendation API",
     description="API for personalized news recommendation",
     version="1.0.0",
@@ -33,6 +44,7 @@ app.include_router(notifications_router)
 app.include_router(automation_router)
 
 app.include_router(terms_router)
+app.include_router(admin_router)
 
 
 @app.get("/health")

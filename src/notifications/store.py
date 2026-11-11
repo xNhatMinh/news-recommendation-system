@@ -12,6 +12,7 @@ def notification_counts(connection, user_id):
         SELECT COUNT(*) AS total_count,
                COALESCE(SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END), 0) AS unread_count
         FROM user_notifications WHERE user_id = :user_id
+          AND NOT EXISTS (SELECT 1 FROM hidden_articles h WHERE h.article_id = user_notifications.article_id)
     """),
             {"user_id": user_id},
         )
@@ -34,6 +35,8 @@ def save_notification(user_id, article_url, topic):
                 SELECT :user_id, a.id, :topic, 0, :created_at
                 FROM articles a
                 WHERE a.url = :url
+                  AND EXISTS (SELECT 1 FROM users u WHERE u.id = :user_id AND u.is_active = 1)
+                  AND NOT EXISTS (SELECT 1 FROM hidden_articles h WHERE h.article_id = a.id)
                   AND NOT EXISTS (
                       SELECT 1 FROM user_notifications n
                       WHERE n.user_id = :user_id AND n.article_id = a.id

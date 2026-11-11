@@ -27,6 +27,7 @@ def get_bookmarks(
             FROM user_bookmarks b
             JOIN articles a ON a.id = b.article_id
             WHERE b.user_id = :user_id
+              AND NOT EXISTS (SELECT 1 FROM hidden_articles h WHERE h.article_id = a.id)
             ORDER BY b.id DESC
             LIMIT :limit OFFSET :offset
         """),
@@ -64,7 +65,7 @@ def save_bookmark(request: BookmarkRequest, user=Depends(get_me)):
     try:
         with engine.begin() as connection:
             article_id = connection.execute(
-                text("SELECT id FROM articles WHERE url = :url LIMIT 1"),
+                text("SELECT id FROM articles WHERE url = :url AND NOT EXISTS (SELECT 1 FROM hidden_articles h WHERE h.article_id = articles.id) LIMIT 1"),
                 {"url": request.url},
             ).scalar()
             if article_id is None:

@@ -38,7 +38,7 @@ def linked_user(connection, uid):
     return (
         connection.execute(
             text("""
-        SELECT u.id AS user_id, u.email
+        SELECT u.id AS user_id, u.email, u.is_active, u.token_version
         FROM users u JOIN user_firebase_accounts f ON f.user_id = u.id
         WHERE f.firebase_uid = :uid
     """),
@@ -78,7 +78,7 @@ def sync_firebase_user(identity):
             """),
                 {"user_id": user_id, "uid": uid},
             )
-            return {"user_id": user_id, "email": email}
+            return {"user_id": user_id, "email": email, "is_active": True, "token_version": 0}
     except IntegrityError as exc:
         duplicate = (
             exc.orig.args and exc.orig.args[0] == 1062
@@ -100,7 +100,17 @@ def register(request: RegisterRequest):
         raise HTTPException(409, "Email already registered")
     identity = firebase_service.authenticate("signUp", request.email, request.password)
     user = sync_firebase_user(identity)
-    return RegisterResponse(**user, message="Registration successful")
+    return RegisterResponse(user_id=user["user_id"], email=user["email"], message="Registration successful")
+
+
+def login_response(user):
+    if not user["is_active"]:
+        raise HTTPException(403, "Account is disabled")
+    return LoginResponse(
+        user_id=user["user_id"], email=user["email"], message="Login successful",
+        access_token=create_access_token(user["user_id"], token_version=user["token_version"]),
+        token_type="bearer",
+    )
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -109,24 +119,14 @@ def login(request: LoginRequest):
         "signInWithPassword", request.email, request.password
     )
     user = sync_firebase_user(identity)
-    return LoginResponse(
-        **user,
-        message="Login successful",
-        access_token=create_access_token(user["user_id"]),
-        token_type="bearer",
-    )
+    return login_response(user)
 
 
 @router.post("/google", response_model=LoginResponse)
 def google_login(request: GoogleLoginRequest):
     identity = firebase_service.authenticate_google(request.id_token)
     user = sync_firebase_user(identity)
-    return LoginResponse(
-        **user,
-        message="Login successful",
-        access_token=create_access_token(user["user_id"]),
-        token_type="bearer",
-    )
+    return login_response(user)
 
 
 @router.post("/forgot-password", response_model=PasswordResetResponse)
@@ -141,7 +141,7 @@ def forgot_password(request: PasswordResetRequest):
 def get_me(payload=Depends(get_token_payload)):
     try:
         user_id = int(payload["sub"])
-    except (ValueError, TypeError):
+    except (KeyError, ValueError, TypeError):
         raise HTTPException(
             status_code=401,
             detail="Invalid user ID in token",
@@ -152,7 +152,7 @@ def get_me(payload=Depends(get_token_payload)):
         user = (
             connection.execute(
                 text("""
-                SELECT u.id, u.email
+                SELECT u.id, u.email, u.is_active, u.token_version
                 FROM users u
                 JOIN user_firebase_accounts f ON f.user_id = u.id
                 WHERE u.id = :user_id
@@ -169,6 +169,11 @@ def get_me(payload=Depends(get_token_payload)):
             detail="Account not found",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    version = payload.get("ver", 0)  # Tokens issued before this migration have version 0.
+    if not user["is_active"] or type(version) is not int or version != user["token_version"]:
+        raise HTTPException(401, "Account is disabled or session was revoked",
+                            headers={"WWW-Authenticate": "Bearer"})
 
     return {
         "user_id": user["id"],

@@ -1,12 +1,7 @@
 import os
-from datetime import datetime
 
 from dotenv import load_dotenv
 from google import genai
-from sqlalchemy import text
-
-from src.db.db import engine
-from src.embedding.hybrid_search import search_hybrid
 
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")

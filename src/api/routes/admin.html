@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Newsora · Quản trị</title>
+    <style>
+        :root{font:15px/1.5 system-ui,sans-serif;color:#23312d;background:#f5f7f6}
+        *{box-sizing:border-box}body{margin:0}button,input,select{font:inherit}
+        button{cursor:pointer;border:0;border-radius:8px;padding:9px 14px;background:#24684e;color:white}
+        button:disabled{opacity:.5;cursor:wait}button.secondary{background:#e8eeea;color:#244d3c}
+        input,select{border:1px solid #ccd8d0;border-radius:8px;padding:9px;background:white;max-width:100%}
+        input[type=checkbox]{width:19px;height:19px;cursor:pointer}label{display:block;margin-bottom:10px}
+        label input:not([type=checkbox]){display:block;width:100%;margin-top:5px}
+        header{background:white;border-bottom:1px solid #dce5df;padding:18px 6%;display:flex;gap:16px;align-items:center}
+        header strong{color:#24684e;font-size:24px}header span{flex:1;color:#68766e}
+        main{max-width:1200px;margin:26px auto;padding:0 20px}h1{font-size:24px;margin:0 0 18px}h2{font-size:18px;margin:0 0 14px}
+        .panel{background:white;border:1px solid #dce5df;border-radius:14px;padding:22px;margin-bottom:20px}
+        #loginPanel{max-width:390px;margin:70px auto}.muted{color:#6d7972;font-size:13px}
+        .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.toolbar input{flex:1;min-width:180px}
+        .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px}
+        .stat{padding:18px;border-radius:12px;background:white;border:1px solid #dce5df}
+        .stat strong{display:block;font-size:28px;color:#24684e}.stat span{font-size:13px;color:#69776f}
+        .scroll{overflow:auto}table{border-collapse:collapse;width:100%;font-size:14px}th,td{padding:12px 9px;text-align:left;border-bottom:1px solid #e6ece8;vertical-align:top}
+        th{font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:#66766b}td.title{min-width:240px}
+        .badge{border-radius:6px;background:#e8f2eb;color:#28613d;padding:3px 7px;font-size:12px;white-space:nowrap}
+        .badge.failed,.badge.locked,.error{color:#a12626}.badge.running{background:#fff1cb;color:#795800}
+        .actions{display:flex;gap:6px;white-space:nowrap}.actions button{padding:6px 10px;font-size:13px}
+        #message{min-height:24px;margin-bottom:12px}#jobText{display:block;margin-top:12px}
+        .pager{display:flex;gap:12px;justify-content:flex-end;align-items:center;margin-top:16px}
+        dialog{border:0;border-radius:14px;padding:24px;width:min(780px,94vw);max-height:85vh;box-shadow:0 16px 70px #0003}
+        dialog::backdrop{background:#182c2260}#previewContent{white-space:pre-wrap;line-height:1.75}
+        #previewLink{display:block;overflow-wrap:anywhere;margin-bottom:18px;color:#24684e}[hidden]{display:none!important}
+        @media(max-width:650px){header{padding:14px 20px}header span{display:none}.stats{grid-template-columns:repeat(2,1fr);gap:8px}.stat{padding:12px}.panel{padding:15px}}
+    </style>
+</head>
+<body>
+<header><strong>Newsora</strong><span>Quản trị nguồn tin, bài viết và người dùng</span><button id="logout" class="secondary" hidden>Đăng xuất</button></header>
+<main>
+    <section id="loginPanel" class="panel">
+        <h1>Đăng nhập quản trị</h1>
+        <form id="loginForm">
+            <label>Username<input id="username" name="username" autocomplete="username" value="admin" required maxlength="50"></label>
+            <label>Mật khẩu<input id="password" name="password" type="password" autocomplete="current-password" required maxlength="256"></label>
+            <button id="loginButton">Đăng nhập</button>
+            <p id="loginError" class="error" role="alert"></p>
+        </form>
+    </section>
+    <section id="dashboard" hidden>
+        <div id="message" role="status" aria-live="polite"></div>
+        <div class="stats">
+            <div class="stat"><strong id="totalArticles">0</strong><span>Tổng bài viết</span></div>
+            <div class="stat"><strong id="enabledSources">0 / 4</strong><span>Nguồn đang bật</span></div>
+            <div class="stat"><strong id="hiddenArticles">0</strong><span>Bài đang ẩn</span></div>
+            <div class="stat"><strong id="totalUsers">0</strong><span>Người dùng · <span id="lockedUsers">0</span> bị khóa</span></div>
+        </div>
+        <section class="panel">
+            <h2>Nguồn tin và cập nhật</h2>
+            <div class="toolbar">
+                <select id="updateSource" aria-label="Nguồn cập nhật"><option value="">Tất cả nguồn đang bật</option></select>
+                <button id="runUpdate">Cập nhật ngay</button>
+                <button id="refresh" class="secondary">Làm mới</button>
+            </div>
+            <span id="jobText" class="muted"></span>
+            <p class="muted">Bật/tắt nguồn áp dụng cho lượt cập nhật tiếp theo; các bài đã lưu vẫn được giữ lại.</p>
+            <div class="scroll"><table>
+                <thead><tr><th>Nguồn</th><th>Bật</th><th>Số bài</th><th>Lượt gần nhất</th><th>Bài mới</th><th>Hoàn tất lúc</th><th>Lỗi</th></tr></thead>
+                <tbody id="sourceRows"></tbody>
+            </table></div>
+        </section>
+        <section class="panel">
+            <h2>Quản lý người dùng</h2>
+            <form id="userSearchForm" class="toolbar">
+                <input id="userQuery" placeholder="Tìm theo tên hoặc email…" aria-label="Tìm người dùng" maxlength="200">
+                <select id="userStatus" aria-label="Trạng thái tài khoản"><option value="all">Tất cả tài khoản</option><option value="active">Đang hoạt động</option><option value="locked">Đã khóa</option></select>
+                <button>Tìm kiếm</button>
+                <button id="refreshUsers" type="button" class="secondary">Làm mới</button>
+            </form>
+            <p class="muted">Khóa tài khoản sẽ thu hồi phiên đăng nhập và ngừng gửi thông báo tới thiết bị đã đăng ký. Sau khi mở khóa, người dùng cần đăng nhập lại.</p>
+            <p id="userCount" class="muted" role="status"></p>
+            <div class="scroll"><table>
+                <thead><tr><th>ID</th><th>Tên người dùng</th><th>Email</th><th>Ngày đăng ký</th><th>Trạng thái</th><th>Thao tác</th></tr></thead>
+                <tbody id="userRows"></tbody>
+            </table></div>
+            <div class="pager"><button id="previousUsers" class="secondary">Trước</button><span id="userPageNumber">Trang 1</span><button id="nextUsers" class="secondary">Sau</button></div>
+        </section>
+        <section class="panel">
+            <h2>Quản lý bài viết</h2>
+            <form id="searchForm" class="toolbar">
+                <input id="query" placeholder="Tìm theo tiêu đề…" aria-label="Tìm tiêu đề" maxlength="200">
+                <select id="articleSource" aria-label="Lọc nguồn"><option value="">Tất cả nguồn</option></select>
+                <select id="visibility" aria-label="Trạng thái bài"><option value="all">Tất cả trạng thái</option><option value="visible">Đang hiển thị</option><option value="hidden">Đang ẩn</option></select>
+                <button>Tìm kiếm</button>
+            </form>
+            <div class="scroll"><table>
+                <thead><tr><th>Tiêu đề</th><th>Chủ đề</th><th>Ngày đăng</th><th>Trạng thái</th><th>Thao tác</th></tr></thead>
+                <tbody id="articleRows"></tbody>
+            </table></div>
+            <div class="pager"><button id="previous" class="secondary">Trước</button><span id="pageNumber">Trang 1</span><button id="next" class="secondary">Sau</button></div>
+        </section>
+    </section>
+</main>
+<dialog id="preview"><div class="toolbar"><h2 id="previewTitle"></h2><button id="closePreview" class="secondary">Đóng</button></div><a id="previewLink" target="_blank" rel="noopener noreferrer"></a><div id="previewContent"></div></dialog>
+<script>
+// Only a token in memory. Reloading the page requires login again.
+let token = '', offset = 0, usersOffset = 0, usersRequest = 0, timer = null;
+const pageSize = 20;
+const $ = id => document.getElementById(id);
+const statusNames = {idle:'Chưa chạy',running:'Đang chạy',finished:'Hoàn tất',failed:'Lỗi',partial:'Có nguồn lỗi'};
+const dateText = value => value ? value.replace('T',' ').slice(0,19) : '—';
+
+function message(text, error=false) {
+    $('message').textContent = text;
+    $('message').className = error ? 'error' : '';
+}
+
+function logout() {
+    usersRequest++;
+    token = ''; clearInterval(timer); timer = null;
+    $('dashboard').hidden = true; $('loginPanel').hidden = false; $('logout').hidden = true;
+    $('password').value = '';
+    if ($('preview').open) $('preview').close();
+}
+
+async function api(path, method='GET', body) {
+    const headers = {};
+    if (token) headers.Authorization = 'Bearer ' + token;
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    const response = await fetch(path, {method,headers,body:body === undefined ? undefined : JSON.stringify(body)});
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        if (response.status === 401 && path !== '/admin/login') logout();
+        throw new Error(typeof data.detail === 'string' ? data.detail : 'Không thể thực hiện yêu cầu.');
+    }
+    return data;
+}
+
+function cell(row, text, className='') {
+    const td = document.createElement('td'); td.textContent = text; td.className = className; row.append(td); return td;
+}
+function option(select, value, text, disabled=false) {
+    const opt = document.createElement('option'); opt.value=value; opt.textContent=text; opt.disabled=disabled; select.append(opt);
+}
+
+async function loadOverview() {
+    const data = await api('/admin/overview');
+    $('totalArticles').textContent = data.total_articles;
+    $('hiddenArticles').textContent = data.hidden_articles;
+    $('totalUsers').textContent = data.total_users;
+    $('lockedUsers').textContent = data.locked_users;
+    $('enabledSources').textContent = data.sources.filter(s => s.enabled).length + ' / ' + data.sources.length;
+    const selected = $('updateSource').value, articleSelected = $('articleSource').value;
+    $('updateSource').replaceChildren(); option($('updateSource'),'','Tất cả nguồn đang bật');
+    $('articleSource').replaceChildren(); option($('articleSource'),'','Tất cả nguồn');
+    $('sourceRows').replaceChildren();
+    data.sources.forEach(source => {
+        option($('updateSource'),source.code,source.name,!source.enabled);
+        option($('articleSource'),source.code,source.name);
+        const row = document.createElement('tr'); cell(row,source.name);
+        const toggle = document.createElement('input'); toggle.type='checkbox'; toggle.checked=source.enabled;
+        toggle.setAttribute('aria-label','Bật nguồn ' + source.name);
+        toggle.onchange = async () => {
+            toggle.disabled = true;
+            try { await api('/admin/sources/'+source.code,'PATCH',{enabled:toggle.checked}); message('Đã cập nhật nguồn '+source.name); await loadOverview(); }
+            catch(error) { toggle.checked=!toggle.checked; message(error.message,true); }
+            finally { toggle.disabled=false; }
+        };
+        const stateCell = document.createElement('td'); stateCell.append(toggle); row.append(stateCell);
+        cell(row,source.article_count);
+        const badge = document.createElement('span'); badge.className='badge '+source.status; badge.textContent=statusNames[source.status] || source.status;
+        const badgeCell = document.createElement('td'); badgeCell.append(badge); row.append(badgeCell);
+        cell(row,source.new_articles); cell(row,dateText(source.finished_at)); cell(row,source.error || '—');
+        $('sourceRows').append(row);
+    });
+    $('updateSource').value = data.sources.some(s => s.code===selected && s.enabled) ? selected : '';
+    $('articleSource').value = articleSelected;
+    const job = data.job;
+    $('jobText').textContent = (statusNames[job.status] || job.status) + ' · ' + job.message + (job.new_articles === undefined ? '' : ' · '+job.new_articles+' bài mới');
+    $('runUpdate').disabled = job.status === 'running' || !data.sources.some(s => s.enabled);
+}
+
+async function loadUsers() {
+    const request = ++usersRequest, session = token;
+    const params = new URLSearchParams({q:$('userQuery').value,account_status:$('userStatus').value,limit:pageSize,offset:usersOffset});
+    const data = await api('/admin/users?'+params);
+    if (request !== usersRequest || session !== token) return;
+    $('userRows').replaceChildren();
+    $('userCount').textContent = data.total_count+' tài khoản phù hợp';
+    if (!data.results.length) {
+        const row = document.createElement('tr'); cell(row,'Không có người dùng phù hợp.').colSpan=6; $('userRows').append(row);
+    }
+    data.results.forEach(user => {
+        const row = document.createElement('tr');
+        cell(row,user.id); cell(row,user.username); cell(row,user.email || '—'); cell(row,dateText(user.created_at));
+        const badge = document.createElement('span'); badge.className='badge '+(user.is_active ? '' : 'locked');
+        badge.textContent=user.is_active ? 'Đang hoạt động' : 'Đã khóa';
+        const stateCell=document.createElement('td'); stateCell.append(badge); row.append(stateCell);
+        const action=document.createElement('button'); action.textContent=user.is_active ? 'Khóa tài khoản' : 'Mở khóa';
+        action.onclick=async () => {
+            const label=user.email || user.username;
+            if (!window.confirm((user.is_active ? 'Khóa tài khoản ' : 'Mở khóa tài khoản ')+label+'?')) return;
+            action.disabled=true;
+            try {
+                await api('/admin/users/'+user.id,'PATCH',{is_active:!user.is_active});
+                message(user.is_active ? 'Đã khóa tài khoản và thu hồi phiên đăng nhập.' : 'Đã mở khóa. Người dùng có thể đăng nhập lại.');
+                // Reset pagination because the changed account may leave the current filter.
+                usersOffset=0;
+                await Promise.all([loadOverview(),loadUsers()]);
+            } catch(error) { message(error.message,true); action.disabled=false; }
+        };
+        const actions=document.createElement('td'); actions.className='actions'; actions.append(action); row.append(actions);
+        $('userRows').append(row);
+    });
+    $('userPageNumber').textContent='Trang '+(Math.floor(usersOffset/pageSize)+1);
+    $('previousUsers').disabled=usersOffset===0; $('nextUsers').disabled=!data.has_more;
+}
+
+async function loadArticles() {
+    const params = new URLSearchParams({q:$('query').value,visibility:$('visibility').value,limit:pageSize,offset});
+    if ($('articleSource').value) params.set('source',$('articleSource').value);
+    const data = await api('/admin/articles?'+params);
+    $('articleRows').replaceChildren();
+    if (!data.results.length) {
+        const row=document.createElement('tr'); const td=cell(row,'Không có bài viết phù hợp.'); td.colSpan=5; $('articleRows').append(row);
+    }
+    data.results.forEach(article => {
+        const row=document.createElement('tr'); cell(row,article.title,'title'); cell(row,article.category || '—');
+        cell(row,dateText(article.published_at)); cell(row,article.hidden ? 'Đang ẩn' : 'Hiển thị');
+        const actions=document.createElement('td'); actions.className='actions';
+        const preview=document.createElement('button'); preview.textContent='Xem'; preview.className='secondary';
+        preview.onclick=async () => {
+            try {
+                const a=await api('/admin/articles/'+article.id);
+                $('previewTitle').textContent=a.title; $('previewContent').textContent=a.content || 'Chưa có nội dung.';
+                const url=new URL(a.url);
+                $('previewLink').textContent=a.url; $('previewLink').href=['http:','https:'].includes(url.protocol) ? a.url : '#';
+                $('preview').showModal();
+            } catch(error) { message(error.message,true); }
+        };
+        const toggle=document.createElement('button'); toggle.textContent=article.hidden ? 'Hiện lại' : 'Ẩn bài';
+        toggle.onclick=async () => {
+            toggle.disabled=true;
+            try { await api('/admin/articles/'+article.id,'PATCH',{hidden:!article.hidden}); message(article.hidden ? 'Đã hiện lại bài viết.' : 'Đã ẩn bài viết.'); await Promise.all([loadOverview(),loadArticles()]); }
+            catch(error) { message(error.message,true); toggle.disabled=false; }
+        };
+        actions.append(preview,toggle); row.append(actions); $('articleRows').append(row);
+    });
+    $('pageNumber').textContent='Trang '+(Math.floor(offset/pageSize)+1);
+    $('previous').disabled=offset===0; $('next').disabled=!data.has_more;
+}
+
+$('loginForm').onsubmit=async event => {
+    event.preventDefault(); $('loginButton').disabled=true; $('loginError').textContent='';
+    try {
+        const data=await api('/admin/login','POST',{username:$('username').value.trim(),password:$('password').value});
+        token=data.access_token; $('password').value=''; offset=0; usersOffset=0;
+        await Promise.all([loadOverview(),loadArticles(),loadUsers()]);
+        $('loginPanel').hidden=true; $('dashboard').hidden=false; $('logout').hidden=false;
+        clearInterval(timer); timer=setInterval(() => loadOverview().catch(error => message(error.message,true)),5000);
+    } catch(error) { token=''; $('loginError').textContent=error.message; }
+    finally { $('loginButton').disabled=false; }
+};
+$('logout').onclick=logout;
+$('refresh').onclick=() => Promise.all([loadOverview(),loadArticles(),loadUsers()]).catch(error => message(error.message,true));
+$('userSearchForm').onsubmit=event => { event.preventDefault(); usersOffset=0; loadUsers().catch(error => message(error.message,true)); };
+$('refreshUsers').onclick=() => loadUsers().catch(error => message(error.message,true));
+$('previousUsers').onclick=() => { usersOffset=Math.max(0,usersOffset-pageSize); loadUsers().catch(error => message(error.message,true)); };
+$('nextUsers').onclick=() => { usersOffset+=pageSize; loadUsers().catch(error => message(error.message,true)); };
+$('searchForm').onsubmit=event => { event.preventDefault(); offset=0; loadArticles().catch(error => message(error.message,true)); };
+$('previous').onclick=() => { offset=Math.max(0,offset-pageSize); loadArticles().catch(error => message(error.message,true)); };
+$('next').onclick=() => { offset+=pageSize; loadArticles().catch(error => message(error.message,true)); };
+$('runUpdate').onclick=async () => {
+    $('runUpdate').disabled=true;
+    try { const source=$('updateSource').value; const result=await api('/admin/update-news','POST',{sources:source ? [source] : null}); message(result.message); await loadOverview(); }
+    catch(error) { message(error.message,true); $('runUpdate').disabled=false; }
+};
+$('closePreview').onclick=() => $('preview').close();
+</script>
+</body>
+</html>

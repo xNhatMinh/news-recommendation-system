@@ -30,9 +30,9 @@ def send_notification_to_user(user_id: int, title: str, body: str, data=None):
         tokens = (
             connection.execute(
                 text("""
-                SELECT fcm_token
-                FROM user_devices
-                WHERE user_id = :user_id
+                SELECT d.fcm_token FROM user_devices d
+                JOIN users u ON u.id = d.user_id
+                WHERE d.user_id = :user_id AND u.is_active = 1
             """),
                 {"user_id": user_id},
             )

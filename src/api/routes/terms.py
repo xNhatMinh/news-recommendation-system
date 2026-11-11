@@ -30,7 +30,7 @@ def normalized(value):
 def explain_article_term(request: TermRequest):
     with engine.connect() as connection:
         article = connection.execute(text(
-            "SELECT title, description, content, url FROM articles WHERE url = :url LIMIT 1"
+            "SELECT title, description, content, url FROM articles WHERE url = :url AND NOT EXISTS (SELECT 1 FROM hidden_articles h WHERE h.article_id = articles.id) LIMIT 1"
         ), {"url": request.url}).mappings().first()
     if article is None:
         raise HTTPException(404, "Không tìm thấy bài báo")

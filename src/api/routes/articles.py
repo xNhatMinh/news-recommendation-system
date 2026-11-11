@@ -21,6 +21,7 @@ def get_latest_articles(
                url, image_url, published_at
         FROM articles
         WHERE published_at IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM hidden_articles h WHERE h.article_id = articles.id)
     """
     parameters = {"limit": limit + 1, "offset": offset}
 
@@ -57,6 +58,7 @@ def get_article_detail(url: str):
                     url
                 FROM articles
                 WHERE url = :url
+                  AND NOT EXISTS (SELECT 1 FROM hidden_articles h WHERE h.article_id = articles.id)
                 LIMIT 1
             """),
                 {"url": url},

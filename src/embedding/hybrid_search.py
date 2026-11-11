@@ -28,6 +28,7 @@ def search_hybrid(topic, start_date, end_date, top_k=10, article_urls=None):
         FROM articles a
         INNER JOIN article_embeddings e ON a.id = e.article_id
         WHERE DATE(a.published_at) BETWEEN :start_date AND :end_date
+          AND NOT EXISTS (SELECT 1 FROM hidden_articles h WHERE h.article_id = a.id)
     """
     parameters = {"start_date": start_date, "end_date": end_date}
     if main_topic is not None:

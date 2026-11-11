@@ -21,6 +21,7 @@ def get_notifications(
                a.title, COALESCE(a.description, '') AS description, a.url, a.image_url
         FROM user_notifications n JOIN articles a ON n.article_id = a.id
         WHERE n.user_id = :user_id
+          AND NOT EXISTS (SELECT 1 FROM hidden_articles h WHERE h.article_id = a.id)
     """
     if unread_only:
         sql += " AND n.is_read = 0"

@@ -1,6 +1,6 @@
 from firebase_admin import messaging
 
-from src.notifications.firebase_config import firebase_app
+from src.core.firebase_config import firebase_app
 from sqlalchemy import text
 from src.db.db import engine
 

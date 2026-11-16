@@ -26,7 +26,7 @@ firebase.authenticate = Mock(); firebase.authenticate_google = Mock(); firebase.
 sys.modules[firebase.__name__] = firebase
 update = types.ModuleType('src.update_news'); update.main = Mock()
 sys.modules[update.__name__] = update
-config = types.ModuleType('src.notifications.firebase_config'); config.firebase_app = object()
+config = types.ModuleType('src.core.firebase_config'); config.firebase_app = object()
 sys.modules[config.__name__] = config
 hybrid = types.ModuleType('src.embedding.hybrid_search')
 hybrid.MIN_RELEVANCE_SCORE = .5; hybrid.search_hybrid = Mock()
@@ -60,11 +60,11 @@ class UserManagementTests(unittest.TestCase):
             for table in inspect(c).get_table_names():
                 c.execute(text('DROP TABLE ' + table))
             c.execute(text('''CREATE TABLE users(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT UNIQUE,
-                              email TEXT UNIQUE,created_at DATETIME DEFAULT CURRENT_TIMESTAMP,password_hash TEXT)'''))
-            c.execute(text("INSERT INTO users(id,username,email) VALUES(1,'alpha','alpha@example.com'),(2,'beta','beta@example.com')"))
-            c.execute(text('''CREATE TABLE user_firebase_accounts(user_id INTEGER PRIMARY KEY,firebase_uid TEXT UNIQUE,
-                              created_at DATETIME DEFAULT CURRENT_TIMESTAMP)'''))
-            c.execute(text("INSERT INTO user_firebase_accounts(user_id,firebase_uid) VALUES(1,'uid-alpha'),(2,'uid-beta')"))
+                              email TEXT UNIQUE,firebase_uid TEXT UNIQUE,
+                              created_at DATETIME DEFAULT CURRENT_TIMESTAMP,password_hash TEXT)'''))
+            c.execute(text("""INSERT INTO users(id,username,email,firebase_uid)
+                              VALUES(1,'alpha','alpha@example.com','uid-alpha'),
+                                    (2,'beta','beta@example.com','uid-beta')"""))
             c.execute(text('CREATE TABLE user_devices(id INTEGER PRIMARY KEY,user_id INTEGER,fcm_token TEXT UNIQUE)'))
             c.execute(text("INSERT INTO user_devices VALUES(1,1,'test-device')"))
             c.execute(text('CREATE TABLE user_preferences(id INTEGER PRIMARY KEY,user_id INTEGER,topic TEXT,weight FLOAT)'))
@@ -96,6 +96,7 @@ class UserManagementTests(unittest.TestCase):
     def test_migration_preserves_accounts_and_adds_defaults(self):
         self.assertTrue(self.row()['is_active']); self.assertEqual(self.row()['token_version'], 0)
         self.assertEqual(self.row()['email'], 'alpha@example.com')
+        self.assertEqual(self.row()['firebase_uid'], 'uid-alpha')
 
     def test_repeated_initialization_preserves_locked_status_and_version(self):
         self.change(False); store.init_admin_tables(); store.init_admin_tables()
@@ -191,9 +192,10 @@ class UserManagementTests(unittest.TestCase):
     def test_lock_retains_personal_data_and_removes_push_registrations(self):
         self.change(False)
         with engine.connect() as c:
-            for table in ['user_preferences', 'user_bookmarks', 'user_notifications', 'user_firebase_accounts']:
+            for table in ['user_preferences', 'user_bookmarks', 'user_notifications']:
                 self.assertGreater(c.execute(text('SELECT COUNT(*) FROM '+table+' WHERE user_id=1')).scalar(), 0)
             self.assertEqual(c.execute(text('SELECT COUNT(*) FROM user_devices WHERE user_id=1')).scalar(), 0)
+        self.assertEqual(self.row()['firebase_uid'], 'uid-alpha')
 
     def test_locked_accounts_excluded_from_notification_matching(self):
         self.change(False)
@@ -219,9 +221,30 @@ class UserManagementTests(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         created_id = response.json()['user_id']
         self.assertTrue(self.row(created_id)['is_active'])
+        self.assertEqual(self.row(created_id)['firebase_uid'], identity['uid'])
         response = client.post('/auth/login', json={'email': identity['email'], 'password': 'test-password-123'})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(security.decode_access_token(response.json()['access_token'])['ver'], 0)
+
+    def test_login_and_me_use_only_users_table(self):
+        self.assertFalse(inspect(engine).has_table('user_firebase_accounts'))
+        response = self.login()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['user_id'], 1)
+        self.assertEqual(client.get('/auth/me', headers=self.user_headers).status_code, 200)
+
+    def test_email_cannot_be_claimed_by_a_different_firebase_uid(self):
+        firebase.authenticate.return_value = {'uid': 'different-uid', 'email': 'alpha@example.com'}
+        self.assertEqual(self.login().status_code, 409)
+        self.assertEqual(self.row()['firebase_uid'], 'uid-alpha')
+
+    def test_password_and_google_login_share_the_same_uid_profile(self):
+        password = self.login()
+        google = client.post('/auth/google', json={'id_token': 'verified-by-mock'})
+        self.assertEqual((password.status_code, google.status_code), (200, 200))
+        self.assertEqual(password.json()['user_id'], google.json()['user_id'])
+        with engine.connect() as c:
+            self.assertEqual(c.execute(text('SELECT COUNT(*) FROM users')).scalar(), 2)
 
     def test_other_users_and_admin_remain_usable(self):
         self.change(False)

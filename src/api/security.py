@@ -17,27 +17,16 @@ JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 
-def create_access_token(user_id: int | str, *, role: str | None = None,
-                        token_version: int | None = None) -> str:
-    expires_at = datetime.now(timezone.utc) + timedelta(
-        minutes=ACCESS_TOKEN_EXPIRE_MINUTES
-    )
-
-    payload = {
-        "sub": str(user_id),
-        "exp": expires_at,
-    }
+def create_access_token(user_id, role=None, token_version=None):
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    payload = {"sub": str(user_id), "exp": expires_at}
 
     if role is not None:
         payload["role"] = role
     if token_version is not None:
         payload["ver"] = token_version
 
-    return jwt.encode(
-        payload,
-        JWT_SECRET_KEY,
-        algorithm=JWT_ALGORITHM,
-    )
+    return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
 
 
 def decode_access_token(token: str):

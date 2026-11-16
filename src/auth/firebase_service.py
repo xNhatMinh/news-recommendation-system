@@ -7,7 +7,7 @@ from firebase_admin import auth, exceptions
 
 
 def firebase_app():
-    from src.notifications.firebase_config import firebase_app as app
+    from src.core.firebase_config import firebase_app as app
 
     return app
 
@@ -93,13 +93,11 @@ def verify_identity(id_token, provider, expected_email=None):
             id_token, app=firebase_app(), check_revoked=True
         )
     except auth.UserDisabledError:
-        raise HTTPException(403, "Account is disabled") from None
-    except auth.CertificateFetchError:
-        raise HTTPException(503, "Authentication service is unavailable") from None
+        raise HTTPException(403, "Account is disabled")
     except (auth.InvalidIdTokenError, ValueError):
-        raise HTTPException(401, "Invalid authentication token") from None
+        raise HTTPException(401, "Invalid authentication token")
     except exceptions.FirebaseError:
-        raise HTTPException(503, "Authentication service is unavailable") from None
+        raise HTTPException(503, "Authentication service is unavailable") 
     email = identity.get("email")
     if not identity.get("uid") or not isinstance(email, str) or not email:
         raise HTTPException(401, "Invalid authentication identity")

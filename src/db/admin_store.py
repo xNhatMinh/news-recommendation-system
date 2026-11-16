@@ -39,8 +39,12 @@ def init_admin_tables():
 
 def init_user_columns():
     """Upgrade existing user profiles; leave their data and current sessions intact."""
+    uid_type = 'VARCHAR(128)'
+    if engine.dialect.name == 'mysql':
+        uid_type += ' CHARACTER SET ascii COLLATE ascii_bin'
     fields = {'is_active': 'BOOLEAN NOT NULL DEFAULT TRUE',
-              'token_version': 'INTEGER NOT NULL DEFAULT 0'}
+              'token_version': 'INTEGER NOT NULL DEFAULT 0',
+              'firebase_uid': uid_type}
     with engine.begin() as connection:
         existing = {column['name'] for column in inspect(connection).get_columns('users')}
         for name, definition in fields.items():
@@ -51,6 +55,14 @@ def init_user_columns():
                     # A concurrent startup may already have added the same column.
                     if name not in {c['name'] for c in inspect(connection).get_columns('users')}:
                         raise
+        schema = inspect(connection)
+        indexes = schema.get_indexes('users') + schema.get_unique_constraints('users')
+        if not any(item['column_names'] == ['firebase_uid'] and item.get('unique', True) for item in indexes):
+            try:
+                connection.execute(text('CREATE UNIQUE INDEX uq_users_firebase_uid ON users (firebase_uid)'))
+            except DBAPIError:
+                if 'uq_users_firebase_uid' not in {item['name'] for item in inspect(connection).get_indexes('users')}:
+                    raise
 
 
 def set_user_active(user_id, active):

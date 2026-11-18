@@ -149,7 +149,7 @@ def get_me(payload=Depends(get_token_payload)):
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    version = payload.get("ver", 0)  # Tokens issued before this migration have version 0.
+    version = payload.get("ver", 0)
     if not user["is_active"] or type(version) is not int or version != user["token_version"]:
         raise HTTPException(401, "Account is disabled or session was revoked",
                             headers={"WWW-Authenticate": "Bearer"})

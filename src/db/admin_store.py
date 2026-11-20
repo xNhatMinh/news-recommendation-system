@@ -1,7 +1,7 @@
 """Two small tables: source settings/status and IDs of hidden articles."""
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, MetaData, String, Table, BigInteger, inspect, select, text
+from sqlalchemy import inspect, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from src.db.db import engine
 
@@ -11,27 +11,37 @@ SOURCES = {
     "tuoitre": ("Tuổi Trẻ", "tuoitre.vn"),
     "vietnamnet": ("VietNamNet", "vietnamnet.vn"),
 }
-metadata = MetaData()
-source_table = Table(
-    "news_sources", metadata,
-    Column("code", String(30), primary_key=True),
-    Column("enabled", Boolean, nullable=False, default=True),
-    Column("status", String(20), nullable=False, default="idle"),
-    Column("started_at", DateTime), Column("finished_at", DateTime),
-    Column("new_articles", Integer, nullable=False, default=0),
-    Column("error", String(200), nullable=False, default=""),
-)
-hidden_table = Table("hidden_articles", metadata, Column("article_id", BigInteger, primary_key=True))
-
-
 def init_admin_tables():
-    metadata.create_all(engine)
+    with engine.begin() as connection:
+        connection.execute(text("""
+            CREATE TABLE IF NOT EXISTS news_sources (
+                code VARCHAR(30) PRIMARY KEY,
+                enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                status VARCHAR(20) NOT NULL DEFAULT 'idle',
+                started_at DATETIME,
+                finished_at DATETIME,
+                new_articles INTEGER NOT NULL DEFAULT 0,
+                error VARCHAR(200) NOT NULL DEFAULT ''
+            )
+        """))
+        connection.execute(text("""
+            CREATE TABLE IF NOT EXISTS hidden_articles (
+                article_id BIGINT PRIMARY KEY
+            )
+        """))
     init_user_columns()
     for code in SOURCES:
         try:
             with engine.begin() as connection:
-                if connection.execute(select(source_table.c.code).where(source_table.c.code == code)).first() is None:
-                    connection.execute(source_table.insert().values(code=code))
+                exists = connection.execute(
+                    text("SELECT code FROM news_sources WHERE code = :code"),
+                    {"code": code},
+                ).first()
+                if exists is None:
+                    connection.execute(
+                        text("INSERT INTO news_sources (code) VALUES (:code)"),
+                        {"code": code},
+                    )
         except IntegrityError:
             # Another backend process may have inserted the same default source.
             pass
@@ -81,7 +91,7 @@ def set_user_active(user_id, active):
 
 def get_sources():
     with engine.connect() as connection:
-        rows = connection.execute(select(source_table)).mappings().all()
+        rows = connection.execute(text("SELECT * FROM news_sources")).mappings().all()
         result = []
         for row in rows:
             if row["code"] not in SOURCES:
@@ -97,20 +107,30 @@ def get_sources():
 
 def set_source_enabled(code, enabled):
     with engine.begin() as connection:
-        connection.execute(source_table.update().where(source_table.c.code == code).values(enabled=enabled))
+        connection.execute(text("UPDATE news_sources SET enabled = :enabled WHERE code = :code"),
+                           {"enabled": enabled, "code": code})
 
 
 def source_started(code):
     with engine.begin() as connection:
-        connection.execute(source_table.update().where(source_table.c.code == code).values(
-            status="running", started_at=datetime.now(), finished_at=None, new_articles=0, error=""))
+        connection.execute(text("""
+            UPDATE news_sources
+            SET status = :status, started_at = :started_at, finished_at = NULL,
+                new_articles = 0, error = ''
+            WHERE code = :code
+        """), {"status": "running", "started_at": datetime.now(), "code": code})
 
 
 def source_finished(code, count=0, error=""):
     with engine.begin() as connection:
-        connection.execute(source_table.update().where(source_table.c.code == code).values(
-            status="failed" if error else "finished", finished_at=datetime.now(),
-            new_articles=count, error=error[:200]))
+        connection.execute(text("""
+            UPDATE news_sources
+            SET status = :status, finished_at = :finished_at,
+                new_articles = :new_articles, error = :error
+            WHERE code = :code
+        """), {"status": "failed" if error else "finished",
+               "finished_at": datetime.now(), "new_articles": count,
+               "error": error[:200], "code": code})
 
 
 def set_article_hidden(article_id, hidden):
@@ -118,8 +138,16 @@ def set_article_hidden(article_id, hidden):
         if connection.execute(text("SELECT id FROM articles WHERE id = :id"), {"id": article_id}).first() is None:
             return False
         if hidden:
-            if connection.execute(select(hidden_table.c.article_id).where(hidden_table.c.article_id == article_id)).first() is None:
-                connection.execute(hidden_table.insert().values(article_id=article_id))
+            exists = connection.execute(
+                text("SELECT article_id FROM hidden_articles WHERE article_id = :article_id"),
+                {"article_id": article_id},
+            ).first()
+            if exists is None:
+                connection.execute(
+                    text("INSERT INTO hidden_articles (article_id) VALUES (:article_id)"),
+                    {"article_id": article_id},
+                )
         else:
-            connection.execute(hidden_table.delete().where(hidden_table.c.article_id == article_id))
+            connection.execute(text("DELETE FROM hidden_articles WHERE article_id = :article_id"),
+                               {"article_id": article_id})
     return True

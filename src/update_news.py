@@ -13,7 +13,6 @@ UPDATE_INTERVAL_SECONDS = 5 * 60
 
 def main(sources=None):
     """Shared by n8n, the admin page and the existing CLI."""
-    init_admin_tables()
     crawlers = {"vnexpress": crawl_vnexpress, "dantri": crawl_dantri,
                 "tuoitre": crawl_tuoitre, "vietnamnet": crawl_vietnamnet}
     selected = None if sources is None else set(sources)
@@ -50,6 +49,7 @@ def main(sources=None):
 
 
 if __name__ == "__main__":
+    init_admin_tables()
     while True:
         try:
             main()

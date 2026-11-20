@@ -12,7 +12,7 @@ from sqlalchemy import text
 from src.api.security import create_access_token, get_token_payload, verify_admin_password
 from src.api.routes.automation import start_update, update_status
 from src.db.db import engine
-from src.db.admin_store import SOURCES, get_sources, set_source_enabled, set_article_hidden, set_user_active
+from src.db.admin_store import get_source, get_sources, set_source_enabled, set_article_hidden, set_user_active
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 login_attempts = {}
@@ -121,7 +121,7 @@ def change_user(user_id: int, data: UserUpdate, admin=Depends(get_admin)):
 
 @router.patch("/sources/{code}")
 def change_source(code: str, data: SourceUpdate, admin=Depends(get_admin)):
-    if code not in SOURCES:
+    if get_source(code) is None:
         raise HTTPException(404, "Nguồn tin không tồn tại")
     set_source_enabled(code, data.enabled)
     return {"code": code, "enabled": data.enabled}
@@ -150,10 +150,11 @@ def articles(q: str = Query("", max_length=200), source: str | None = None,
         sql += " AND a.title LIKE :q"
         params["q"] = f"%{q.strip()}%"
     if source is not None:
-        if source not in SOURCES:
+        source_info = get_source(source)
+        if source_info is None:
             raise HTTPException(422, "Nguồn tin không hợp lệ")
         sql += " AND a.url LIKE :prefix"
-        params["prefix"] = f"https://{SOURCES[source][1]}/%"
+        params["prefix"] = f"https://{source_info['domain']}/%"
     if visibility not in ("all", "visible", "hidden"):
         raise HTTPException(422, "Trạng thái không hợp lệ")
     if visibility != "all":

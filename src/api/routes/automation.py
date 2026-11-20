@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 
 from src.update_news import main as run_update
-from src.db.admin_store import SOURCES, get_sources
+from src.db.admin_store import get_sources
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -35,8 +35,11 @@ def run_in_background(sources=None):
         logger.exception("Lượt cập nhật tin gặp lỗi")
         result = {"status": "failed", "message": "Cập nhật gặp lỗi, kiểm tra log backend"}
     else:
-        result = {"status": report["status"], "message": "Đã chạy xong lượt cập nhật",
-                  "new_articles": report["new_articles"], "results": report["sources"]}
+        result = {"status": report["status"], 
+                  "message": "Đã chạy xong lượt cập nhật",
+                  "new_articles": report["new_articles"], 
+                  "results": report["sources"]
+                  }
     with update_lock:
         job.update(result)
 
@@ -44,7 +47,7 @@ def run_in_background(sources=None):
 def start_update(background_tasks: BackgroundTasks, sources=None):
     enabled = {row["code"] for row in get_sources() if row["enabled"]}
     if sources is not None:
-        if not sources or any(code not in SOURCES or code not in enabled for code in sources):
+        if not sources or any(code not in enabled for code in sources):
             raise HTTPException(400, "Hãy chọn nguồn đang được bật")
         sources = list(dict.fromkeys(sources))
     elif not enabled:

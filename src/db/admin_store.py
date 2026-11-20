@@ -5,17 +5,21 @@ from sqlalchemy import inspect, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from src.db.db import engine
 
-SOURCES = {
+DEFAULT_SOURCES = {
     "vnexpress": ("VnExpress", "vnexpress.net"),
     "dantri": ("Dân trí", "dantri.com.vn"),
     "tuoitre": ("Tuổi Trẻ", "tuoitre.vn"),
     "vietnamnet": ("VietNamNet", "vietnamnet.vn"),
 }
+
+
 def init_admin_tables():
     with engine.begin() as connection:
         connection.execute(text("""
             CREATE TABLE IF NOT EXISTS news_sources (
                 code VARCHAR(30) PRIMARY KEY,
+                name VARCHAR(100) NOT NULL DEFAULT '',
+                domain VARCHAR(255) NOT NULL DEFAULT '',
                 enabled BOOLEAN NOT NULL DEFAULT TRUE,
                 status VARCHAR(20) NOT NULL DEFAULT 'idle',
                 started_at DATETIME,
@@ -29,18 +33,28 @@ def init_admin_tables():
                 article_id BIGINT PRIMARY KEY
             )
         """))
+        columns = {column["name"] for column in inspect(connection).get_columns("news_sources")}
+        if "name" not in columns:
+            connection.execute(text("ALTER TABLE news_sources ADD COLUMN name VARCHAR(100) NOT NULL DEFAULT ''"))
+        if "domain" not in columns:
+            connection.execute(text("ALTER TABLE news_sources ADD COLUMN domain VARCHAR(255) NOT NULL DEFAULT ''"))
     init_user_columns()
-    for code in SOURCES:
+    for code, (name, domain) in DEFAULT_SOURCES.items():
         try:
             with engine.begin() as connection:
-                exists = connection.execute(
-                    text("SELECT code FROM news_sources WHERE code = :code"),
+                source = connection.execute(
+                    text("SELECT code, name, domain FROM news_sources WHERE code = :code"),
                     {"code": code},
-                ).first()
-                if exists is None:
+                ).mappings().first()
+                if source is None:
                     connection.execute(
-                        text("INSERT INTO news_sources (code) VALUES (:code)"),
-                        {"code": code},
+                        text("INSERT INTO news_sources (code, name, domain) VALUES (:code, :name, :domain)"),
+                        {"code": code, "name": name, "domain": domain},
+                    )
+                elif not source["name"] or not source["domain"]:
+                    connection.execute(
+                        text("UPDATE news_sources SET name = :name, domain = :domain WHERE code = :code"),
+                        {"code": code, "name": name, "domain": domain},
                     )
         except IntegrityError:
             # Another backend process may have inserted the same default source.
@@ -94,15 +108,21 @@ def get_sources():
         rows = connection.execute(text("SELECT * FROM news_sources")).mappings().all()
         result = []
         for row in rows:
-            if row["code"] not in SOURCES:
-                continue
-            name, domain = SOURCES[row["code"]]
+            name, domain = row["name"], row["domain"]
             count = connection.execute(text("SELECT COUNT(*) FROM articles WHERE url LIKE :prefix"),
                                        {"prefix": f"https://{domain}/%"}).scalar()
             result.append({**dict(row), "enabled": bool(row["enabled"]), "name": name,
                            "domain": domain, "article_count": count})
-    result.sort(key=lambda row: list(SOURCES).index(row["code"]))
     return result
+
+
+def get_source(code):
+    with engine.connect() as connection:
+        row = connection.execute(
+            text("SELECT code, name, domain, enabled FROM news_sources WHERE code = :code"),
+            {"code": code},
+        ).mappings().first()
+    return dict(row) if row is not None else None
 
 
 def set_source_enabled(code, enabled):

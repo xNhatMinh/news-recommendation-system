@@ -1,3 +1,5 @@
+import re
+
 from sqlalchemy import text
 
 from src.db.db import engine
@@ -5,6 +7,17 @@ from src.embedding.hybrid_search import MIN_RELEVANCE_SCORE, search_hybrid
 from src.news_topics import get_main_topic
 from src.notifications.sender import send_notification_to_user
 from src.notifications.store import save_notification
+
+
+def clean_notification_body(description, topic):
+    body = (description or "").strip()
+    body = re.sub(
+        r"^\((?:Dân Trí|VnExpress|Tuổi Trẻ|VietNamNet)\)\s*[-–—:]\s*",
+        "",
+        body,
+        flags=re.IGNORECASE,
+    )
+    return body or f"Tin mới về {topic}."
 
 
 def get_notification_preferences():
@@ -70,7 +83,7 @@ def notify_new_articles(new_articles):
                 sent += send_notification_to_user(
                     user_id=user_id,
                     title=article["title"],
-                    body=(article["description"] or "").strip() or f"Tin mới về {topic}.",
+                    body=clean_notification_body(article["description"], topic),
                     data={
                         "screen": "notifications",
                         "article_url": url,

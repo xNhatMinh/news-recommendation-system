@@ -4,7 +4,6 @@ import argparse
 import json
 import re
 import sys
-import time
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urljoin, urlparse
@@ -12,7 +11,7 @@ from urllib.parse import urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
-from src.db.article_store import article_exists, insert_article
+from src.crawler.rss_common import run_rss_crawler
 from src.news_topics import get_main_topic
 
 FEED_PATHS = {
@@ -64,32 +63,6 @@ def canonical_article_url(value):
         return "https://tuoitre.vn" + parsed.path
     except ValueError:
         return None
-
-
-def get_feed_articles(feed_url):
-    response = requests.get(feed_url, headers=HEADERS, timeout=20)
-    response.raise_for_status()
-    soup = BeautifulSoup(response.content, "xml")
-    if soup.find("rss") is None:
-        raise ValueError("Nguồn không trả về RSS hợp lệ")
-    articles = []
-    seen = set()
-    for item in soup.find_all("item"):
-        link = item.find("link")
-        if link is None:
-            continue
-        url = canonical_article_url(link.get_text(strip=True))
-        if not url:
-            continue
-        if url in seen:
-            continue
-        seen.add(url)
-        date = item.find("pubDate")
-        articles.append({
-            "url": url,
-            "published_at": parse_published_at(date.get_text() if date else ""),
-        })
-    return articles
 
 
 def absolute_url(value, article_url):
@@ -216,64 +189,21 @@ def get_article(url, default_category=None):
 
 
 def main(categories=None, days=2, limit_per_category=10, max_articles=None, dry_run=False):
-    if days < 1 or limit_per_category < 1 or (max_articles is not None and max_articles < 1):
-        raise ValueError("days và limit_per_category phải lớn hơn 0")
-    selected = list(FEED_PATHS) if categories is None else list(categories)
-    for topic in selected:
-        if topic not in FEED_PATHS:
-            raise ValueError(f"Chủ đề không hợp lệ: {topic}")
-    if not dry_run:
-        from src.db.db import engine
-    now = datetime.now(VIETNAM_TZ).replace(tzinfo=None)
-    start = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days - 1)
-    inserted = []
-    seen = set()
-    for topic in selected:
-        print(f"Tuổi Trẻ: {topic}", flush=True)
-        try:
-            entries = get_feed_articles(f"https://tuoitre.vn/{FEED_PATHS[topic]}.rss")
-        except Exception as exc:
-            print(f"Không lấy được RSS {topic}: {type(exc).__name__}")
-            continue
-        finally:
-            time.sleep(1)
-        saved = 0
-        for entry in entries:
-            url = entry["url"]
-            if url in seen:
-                continue
-            seen.add(url)
-            if entry["published_at"] and not start <= entry["published_at"] <= now:
-                continue
-            try:
-                if not dry_run:
-                    with engine.connect() as connection:
-                        if article_exists(connection, url):
-                            continue
-                article = get_article(url, default_category=topic)
-                article["published_at"] = article["published_at"] or entry["published_at"]
-                if not all(article.get(k) for k in ("title", "content", "published_at", "main_category")):
-                    continue
-                if not start <= article["published_at"] <= now:
-                    continue
-                if not dry_run:
-                    with engine.begin() as connection:
-                        if article_exists(connection, url):
-                            continue
-                        insert_article(connection, article)
-                inserted.append(article)
-                saved += 1
-                print(f"{'Đọc thử' if dry_run else 'Đã lưu'}: {article['title']}", flush=True)
-            except Exception as exc:
-                print(f"Không đọc được {url}: {type(exc).__name__}")
-            finally:
-                time.sleep(1)
-            if max_articles is not None and len(inserted) >= max_articles:
-                return inserted
-            if saved >= limit_per_category:
-                break
-    print(f"Tuổi Trẻ: {'đọc thử' if dry_run else 'đã lưu'} {len(inserted)} bài.")
-    return inserted
+    return run_rss_crawler(
+        source_name="Tuổi Trẻ",
+        feed_paths=FEED_PATHS,
+        feed_url=lambda topic, path: f"https://tuoitre.vn/{path}.rss",
+        canonicalize_url=canonical_article_url,
+        parse_date=parse_published_at,
+        get_article=lambda url, topic: get_article(url, default_category=topic),
+        categories=categories,
+        days=days,
+        limit_per_category=limit_per_category,
+        max_articles=max_articles,
+        dry_run=dry_run,
+        require_main_category=True,
+        headers=HEADERS,
+    )
 
 
 if __name__ == "__main__":

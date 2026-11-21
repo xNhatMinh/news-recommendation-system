@@ -2,15 +2,12 @@ import argparse
 import sys
 import requests
 from bs4 import BeautifulSoup
-import time
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from urllib.parse import urljoin, urlparse
 
-from sqlalchemy import text
-
-from src.db.db import engine
-from src.db.article_store import article_exists, insert_article
+from src.crawler.rss_common import run_rss_crawler
 from src.news_topics import CRAWL_CATEGORIES, get_main_category
 
 HEADERS = {
@@ -23,6 +20,23 @@ HEADERS = {
 }
 
 CATEGORIES = CRAWL_CATEGORIES
+RSS_FEEDS = {
+    "Thời sự": "thoi-su",
+    "Thế giới": "the-gioi",
+    "Kinh doanh": "kinh-doanh",
+    "Khoa học": "khoa-hoc-cong-nghe",
+    "Thể thao": "the-thao",
+    "Giải trí": "giai-tri",
+    "Sức khỏe": "suc-khoe",
+    "Công nghệ": "khoa-hoc-cong-nghe",
+    "Giáo dục": "giao-duc",
+    "Pháp luật": "phap-luat",
+    "Du lịch": "du-lich",
+    "Đời sống": "gia-dinh",
+    "Xe": "oto-xe-may",
+    "Bất động sản": "bat-dong-san",
+}
+VIETNAM_TZ = timezone(timedelta(hours=7))
 
 
 def get_soup(url):
@@ -31,106 +45,34 @@ def get_soup(url):
     return BeautifulSoup(response.text, "lxml")
 
 
-def get_page_url(category_url, page):
-    if page == 1:
-        return category_url
-
-    return f"{category_url}-p{page}"
-
-
 def parse_published_at(date_text):
     if not date_text:
         return None
 
     match = re.search(r"(\d{1,2})/(\d{1,2})/(\d{4}),\s*(\d{1,2}):(\d{2})", date_text)
+    if match:
+        day, month, year, hour, minute = map(int, match.groups())
+        return datetime(year, month, day, hour, minute)
 
-    if not match:
+    try:
+        result = parsedate_to_datetime(date_text.strip())
+    except (TypeError, ValueError, OverflowError):
         return None
-
-    day, month, year, hour, minute = map(int, match.groups())
-
-    return datetime(year, month, day, hour, minute)
-
-
-def get_latest_article_date():
-    sql = text("""
-        SELECT MAX(published_at)
-        FROM articles
-        WHERE url LIKE 'https://vnexpress.net/%'
-    """)
-
-    with engine.connect() as connection:
-        result = connection.execute(sql).scalar()
-
+    if result.tzinfo is not None:
+        result = result.astimezone(VIETNAM_TZ).replace(tzinfo=None)
     return result
 
 
-def get_article_urls(category_url, latest_date, max_pages=100, limit_per_page=30):
-    urls = []
-
-    for page in range(1, max_pages + 1):
-        page_url = get_page_url(category_url, page)
-
-        print(f"   Page {page}: {page_url}")
-
-        try:
-            soup = get_soup(page_url)
-        except Exception as e:
-            print(f"   -> Error: {e}")
-            break
-
-        page_urls = []
-
-        for article in soup.select("article.item-news"):
-            link = article.select_one(".title-news a[href]")
-
-            if not link:
-                continue
-
-            url = link.get("href")
-
-            if (
-                url
-                and url.startswith("https://vnexpress.net/")
-                and url not in urls
-                and url not in page_urls
-            ):
-                page_urls.append(url)
-
-            if len(page_urls) >= limit_per_page:
-                break
-
-        if not page_urls:
-            print("   -> Không còn bài")
-            break
-
-        urls.extend(page_urls)
-
-        print(f"   -> Found {len(page_urls)} URLs")
-
-        if page >= 2:
-            old_count = 0
-
-            for url in page_urls:
-                try:
-                    article = get_article(url)
-
-                    if (
-                        article["published_at"]
-                        and article["published_at"] <= latest_date
-                    ):
-                        old_count += 1
-
-                except Exception:
-                    continue
-
-            if old_count == len(page_urls):
-                print("   -> Đã đi qua dữ liệu cũ")
-                break
-
-        time.sleep(0.5)
-
-    return urls
+def canonical_article_url(value):
+    try:
+        parsed = urlparse(value.strip())
+        if parsed.scheme not in ("http", "https") or parsed.hostname not in (
+            "vnexpress.net", "www.vnexpress.net"
+        ):
+            return None
+        return "https://vnexpress.net" + parsed.path
+    except ValueError:
+        return None
 
 
 def get_content_html(soup, url):
@@ -241,84 +183,29 @@ def get_article(url):
     }
 
 
-def main(categories=None, days=None, max_pages=100):
-    """Thu thập URL, đọc nội dung rồi lưu những bài chưa có trong MySQL."""
-    if days is not None and days < 1:
-        raise ValueError("days phải lớn hơn 0")
-    if max_pages < 1:
-        raise ValueError("max_pages phải lớn hơn 0")
-    selected_categories = {
-        topic: CATEGORIES[topic]
-        for topic in (categories if categories is not None else CATEGORIES)
-    }
-
-    current_date = datetime.now()
-    if days is None:
-        latest_date = get_latest_article_date() or datetime.min
-    else:
-        latest_date = current_date.replace(hour=0, minute=0, second=0, microsecond=0)
-        latest_date -= timedelta(days=days - 1, microseconds=1)
-    print(f"Mốc lấy tin: {latest_date}")
-
-    # 1. Lấy URL từ các trang chuyên mục và bỏ URL trùng.
-    all_urls = []
-    for category_name, category_url in selected_categories.items():
-        print(f"Đang lấy URL: {category_name}")
-        try:
-            urls = get_article_urls(category_url, latest_date, max_pages=max_pages)
-            for url in urls:
-                if url not in all_urls:
-                    all_urls.append(url)
-        except Exception as exc:
-            print(f"Không lấy được mục {category_name}: {exc}")
-        time.sleep(0.5)
-
-    # 2. Đọc bài, kiểm tra ngày đăng và nội dung.
-    new_articles = []
-    for index, url in enumerate(all_urls, start=1):
-        print(f"Đang đọc bài {index}/{len(all_urls)}")
-        try:
-            with engine.connect() as connection:
-                if article_exists(connection, url):
-                    continue
-            article = get_article(url)
-            published_at = article["published_at"]
-            if not published_at or not latest_date < published_at <= current_date:
-                continue
-            if not article["title"] or not article["content"]:
-                continue
-            if (
-                categories is not None
-                and article.get("main_category") not in selected_categories
-            ):
-                continue
-            new_articles.append(article)
-        except Exception as exc:
-            print(f"Không đọc được bài {url}: {exc}")
-        time.sleep(0.2)
-
-    # 3. Chỉ thêm bài chưa có URL trong database.
-    inserted_articles = []
-    skipped = 0
-    with engine.begin() as connection:
-        for article in new_articles:
-            if article_exists(connection, article["url"]):
-                skipped += 1
-                continue
-            insert_article(connection, article)
-            inserted_articles.append(article)
-
-    print(f"Đã kiểm tra {len(all_urls)} URL.")
-    print(f"Đã lưu {len(inserted_articles)} bài mới; bỏ qua {skipped} bài đã có.")
-    return inserted_articles
+def main(categories=None, days=2, limit_per_category=10):
+    """Lấy RSS VnExpress rồi chuyển việc xử lý chung cho bộ crawl RSS."""
+    return run_rss_crawler(
+        source_name="VnExpress",
+        feed_paths=RSS_FEEDS,
+        feed_url=lambda topic, path: f"https://vnexpress.net/rss/{path}.rss",
+        canonicalize_url=canonical_article_url,
+        parse_date=parse_published_at,
+        get_article=lambda url, topic: get_article(url),
+        categories=categories,
+        days=days,
+        limit_per_category=limit_per_category,
+        require_topic_match=True,
+        require_main_category=False,
+        headers=HEADERS,
+        article_delay=0.5,
+    )
 
 
 if __name__ == "__main__":
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
-    parser = argparse.ArgumentParser(
-        description="Crawl tin mới hoặc bổ sung từng chủ đề."
-    )
+    parser = argparse.ArgumentParser(description="Thu thập tin từ RSS VnExpress.")
     parser.add_argument(
         "--categories",
         nargs="+",
@@ -326,16 +213,11 @@ if __name__ == "__main__":
         help="Các chủ đề cần crawl; mặc định là tất cả.",
     )
     parser.add_argument(
-        "--days",
-        type=int,
-        help="Lấy bài trong N ngày gần đây, dùng khi bổ sung chủ đề mới.",
+        "--days", type=int, default=2,
+        help="Lấy bài trong N ngày gần đây.",
     )
-    parser.add_argument(
-        "--max-pages", type=int, default=100, help="Số trang tối đa của mỗi chủ đề."
-    )
+    parser.add_argument("--limit-per-category", type=int, default=10)
     args = parser.parse_args()
-    if args.days is not None and args.days < 1:
-        parser.error("--days phải lớn hơn 0")
-    if args.max_pages < 1:
-        parser.error("--max-pages phải lớn hơn 0")
-    main(categories=args.categories, days=args.days, max_pages=args.max_pages)
+    if args.days < 1 or args.limit_per_category < 1:
+        parser.error("--days và --limit-per-category phải lớn hơn 0")
+    main(args.categories, args.days, args.limit_per_category)

@@ -4,7 +4,6 @@ import argparse
 import json
 import re
 import sys
-import time
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urljoin, urlparse
@@ -12,8 +11,7 @@ from urllib.parse import urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
-from src.db.article_store import article_exists, insert_article
-from src.db.db import engine
+from src.crawler.rss_common import run_rss_crawler
 from src.news_topics import get_main_topic
 
 FEED_PATHS = {
@@ -47,33 +45,18 @@ def parse_published_at(value):
     return date
 
 
-def get_feed_articles(feed_url):
-    response = requests.get(feed_url, headers=HEADERS, timeout=20)
-    response.raise_for_status()
-    soup = BeautifulSoup(response.content, "xml")
-    articles = []
-    seen = set()
-    for item in soup.find_all("item"):
-        link = item.find("link")
-        if link is None:
-            continue
-        parsed = urlparse(link.get_text(strip=True))
+def canonical_article_url(value):
+    try:
+        parsed = urlparse(value.strip())
         if parsed.scheme not in ("http", "https") or parsed.hostname not in (
             "dantri.com.vn", "www.dantri.com.vn"
         ):
-            continue
+            return None
         if not re.search(r"-\d{15,20}\.htm$", parsed.path):
-            continue
-        url = "https://dantri.com.vn" + parsed.path
-        if url in seen:
-            continue
-        seen.add(url)
-        date = item.find("pubDate")
-        articles.append({
-            "url": url,
-            "published_at": parse_published_at(date.get_text() if date else ""),
-        })
-    return articles
+            return None
+        return "https://dantri.com.vn" + parsed.path
+    except ValueError:
+        return None
 
 
 def absolute_url(value, article_url):
@@ -181,58 +164,19 @@ def get_article(url, default_category=None):
 
 
 def main(categories=None, days=30, limit_per_category=10):
-    if days < 1 or limit_per_category < 1:
-        raise ValueError("days và limit_per_category phải lớn hơn 0")
-    selected = list(FEED_PATHS) if categories is None else list(categories)
-    for topic in selected:
-        if topic not in FEED_PATHS:
-            raise ValueError(f"Chủ đề không hợp lệ: {topic}")
-    now = datetime.now(VIETNAM_TZ).replace(tzinfo=None)
-    start = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days - 1)
-    inserted = []
-    seen = set()
-    for topic in selected:
-        print(f"Dân trí: {topic}", flush=True)
-        try:
-            entries = get_feed_articles(f"https://dantri.com.vn/rss/{FEED_PATHS[topic]}.rss")
-        except Exception as exc:
-            print(f"Không lấy được RSS {topic}: {type(exc).__name__}")
-            continue
-        finally:
-            time.sleep(1)
-        saved = 0
-        for entry in entries:
-            url = entry["url"]
-            if url in seen:
-                continue
-            seen.add(url)
-            if entry["published_at"] and not start <= entry["published_at"] <= now:
-                continue
-            with engine.connect() as connection:
-                if article_exists(connection, url):
-                    continue
-            try:
-                article = get_article(url, default_category=topic)
-                article["published_at"] = article["published_at"] or entry["published_at"]
-                if not article["title"] or not article["content"] or not article["published_at"]:
-                    continue
-                if not start <= article["published_at"] <= now:
-                    continue
-                with engine.begin() as connection:
-                    if article_exists(connection, url):
-                        continue
-                    insert_article(connection, article)
-                inserted.append(article)
-                saved += 1
-                print(f"Đã lưu: {article['title']}", flush=True)
-            except Exception as exc:
-                print(f"Không đọc được {url}: {type(exc).__name__}")
-            finally:
-                time.sleep(1)
-            if saved >= limit_per_category:
-                break
-    print(f"Dân trí: đã lưu {len(inserted)} bài mới.")
-    return inserted
+    return run_rss_crawler(
+        source_name="Dân trí",
+        feed_paths=FEED_PATHS,
+        feed_url=lambda topic, path: f"https://dantri.com.vn/rss/{path}.rss",
+        canonicalize_url=canonical_article_url,
+        parse_date=parse_published_at,
+        get_article=lambda url, topic: get_article(url, default_category=topic),
+        categories=categories,
+        days=days,
+        limit_per_category=limit_per_category,
+        require_main_category=False,
+        headers=HEADERS,
+    )
 
 
 if __name__ == "__main__":

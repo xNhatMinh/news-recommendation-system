@@ -12,7 +12,7 @@ UPDATE_INTERVAL_SECONDS = 5 * 60
 
 
 def main(sources=None):
-    """Shared by n8n, the admin page and the existing CLI."""
+    """Shared by n8n, the admin page"""
     crawlers = {"vnexpress": crawl_vnexpress, "dantri": crawl_dantri,
                 "tuoitre": crawl_tuoitre, "vietnamnet": crawl_vietnamnet}
     selected = None if sources is None else set(sources)
@@ -25,12 +25,7 @@ def main(sources=None):
             continue
         source_started(code)
         try:
-            if code == "vnexpress":
-                articles = crawlers[code](days=2, max_pages=1)
-            elif code in ("tuoitre", "vietnamnet"):
-                articles = crawlers[code](days=2, limit_per_category=5)
-            else:
-                articles = crawlers[code](days=2)
+            articles = crawlers[code](days=2)
             new_articles.extend(articles)
         except Exception as exc:
             error = type(exc).__name__
